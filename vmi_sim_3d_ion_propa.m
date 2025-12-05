@@ -1,0 +1,930 @@
+%% load result of neutral propagation
+global single_pulse
+global effusive_dynamics
+
+load('neutral_propagation_checkpoint');
+clear beta
+%load('T:\github synchronized\I2HeN_velocity_simulation\I+He crosssection calculation\crosssection_v_dependence.mat'); % load sigma_lookup function
+
+%bulk_density_helium = 0.0219; % Angström ^-3
+%density_droplet = 0.8*bulk_density_helium;
+
+%% simulation parameters for ions
+
+if single_pulse
+    ion_simulation_time = 20;
+    dt = 0.01;
+
+    dt_coarse = dt;
+    switchtime = 1E12;
+
+    ion_timesteps = ceil(ion_simulation_time/dt);
+
+else
+
+    ion_simulation_time = 20;
+    if effusive_dynamics
+        dt_fine = 0.001;
+
+        switchtime = 10;
+        dt_coarse = 0.01;
+        
+    else
+
+        dt_fine = 0.005;
+        %dt_fine = 0.01;
+        dt = dt_fine;
+
+        switchtime = 50;
+
+        if Xdip_active  | partner_interaction
+            dt_coarse = dt_fine;
+        else
+        dt_coarse = 0.01;
+        end
+
+    end
+    ion_timesteps = ceil(switchtime/dt_fine)+ ceil((ion_simulation_time - switchtime)/dt_coarse);
+
+end
+
+
+
+partner_interaction_ions = true;
+
+global droplet_charge_model
+
+
+global  geometric_scattering_crosssection_Iplus
+
+
+mean_free_path_ion = get_v_dependent_mean_free_path(1,  geometric_scattering_crosssection_Iplus);
+
+global ion_scatter_angle_std
+
+DEBUG = false;
+
+if effusive_dynamics
+    relative_energy_loss_ion = 0;
+    hard_sphere_collisions_ion =  0;
+
+    binding_energy_I_ion = 0;
+    relative_ion_energy_loss_per_ps = 0.0;
+
+
+    additional_droplet_charges = 0; % supress additional He charges, since there is no droplet
+else
+    % binding_energy_I_ion = 0.308;
+    % relative_ion_energy_loss_per_ps = 0.2;
+    relative_energy_loss_ion = 0;
+    hard_sphere_collisions_ion =  1;
+
+    global binding_energy_I_ion
+    %binding_energy_I_ion = 0.1;
+    relative_ion_energy_loss_per_ps = 0.1;
+
+
+end
+
+
+% define droplet potential for ion
+droplet_potential = @(beta, x) (erf((x-beta(3))/beta(1))*1+1)/2*beta(2);
+
+potential_steepness = 11.89;
+potential_steepness = 14.2;
+
+%empirical_potential_factor = 1E-4; % have to multiply the potential by this otherwise the energy loss when crossing is too large
+empirical_potential_factor = 1; % fixed it by taking care of units
+
+%droplet_potential_atom = @(x) (erf(x/potential_steepness)*1+1)/2*binding_energy*empirical_potential_factor;
+droplet_potential_ion= @(r) droplet_potential([potential_steepness, binding_energy_I_ion, 0],r);
+
+
+h = 0.000001;
+droplet_force = @(x) (droplet_potential_ion(x+h) - droplet_potential_ion(x))/h;
+
+
+
+% arrays that hold the final ion velocity, for each neutral simulation
+% timestep
+x_ci_final = zeros(size(x_components));
+y_ci_final = zeros(size(x_components));
+z_ci_final = zeros(size(x_components));
+
+vx_total = zeros(size(x_components));
+vy_total = zeros(size(x_components));
+vz_total = zeros(size(x_components));
+
+mass_i_final = zeros(size(x_components));
+
+
+last_id = size(x_components,2);
+
+
+distances_travelled_before_collision = [];
+
+%% ion propagation for neutral timestep start_id
+for start_id = 1:last_id
+
+    number_of_collisions = [];
+
+    %for start_id = last_id
+    x_ci= zeros(size(x_components,1), ion_timesteps);
+    y_ci= x_ci;
+    z_ci = x_ci;
+
+    vx_ci = x_ci;
+    vy_ci = x_ci;
+    vz_ci = x_ci;
+
+    ax_ci = x_ci;
+    ay_ci = x_ci;
+    az_ci = x_ci;
+
+
+
+    mass_i = x_ci;
+    mass_i(:,1) = mass(:,end);
+
+    % set charge of all ion to 1
+    charge_i = x_ci(:,1)*0 + 1;
+
+    % set half of the charges to zero for testing of single charge ionization
+    % dynamics
+    %zero_charge_id = randi(num_molecules, ceil(num_molecules/3),1 );
+
+    if single_charge_ionization_allowed
+        charge_i(1:ceil(num_molecules/3)) = 0;
+    end
+
+    % array of indices that contains info which molecule would be in which
+    % single ionized state
+    % if the two partner particles actually move according to the single
+    % ionization potential is determined by the total charge
+    global I2plus_state_select_id
+    num_ionic_states = 4;
+    I2plus_state_select_id = randi(num_ionic_states,num_molecules,1 );
+
+    global highly_charged_iodine
+    if highly_charged_iodine
+        add_charge_id = randi(size(x_ci,1),ceil(size(x_ci,1)/5),1 ); % add one additinal charge to a quarter of the atoms
+        charge_i(add_charge_id) = charge_i(add_charge_id) + 1;
+
+        % add_charge_id = randi(size(x_ci,1),size(x_ci,1)/2,1 );
+        % charge_i(add_charge_id) = charge_i(add_charge_id)+1;
+    end
+
+    %TODO: add initial velocity according to 8*hf - IP(r_eq) or 9*hf - IP(I_eq) for the I2
+    %plus single ionized states, otherwise the single ionized atoms do not move
+    %much (as they are pretty close to the minimum)
+    % difficulty: the velocity has to be added in the difference of
+    % position-direction. also: in case of single ionization is there a
+    % difference in kinetic energy for the ion or the neutral partner? or is it
+    % equal? i also need to pick one of the atoms as the "ionized one"!
+    % - [ x ] 23.12.24
+
+    % set ion initial position and velocity according to position and velocity
+    %of neutrals at start_id time
+    x_ci(:,1) = x_components(:, start_id);
+    y_ci(:,1) = y_components(:, start_id);
+    z_ci(:,1) = z_components(:, start_id);
+
+
+
+    diffx0 =  (x_ci(:,1) - circshift(x_ci(:,1), num_molecules,1) );
+    diffy0 =  (y_ci(:,1) - circshift(y_ci(:,1), num_molecules,1) );
+    diffz0 =  (z_ci(:,1) - circshift(z_ci(:,1), num_molecules,1) );
+
+    diff = sqrt( diffx0.^2 + diffy0.^2 + diffz0.^2);
+
+    %vx_boost = diffx0./diff* 2;
+    % vy_boost = diffy0./diff* 2;
+    % vz_boost = diffz0./diff* 2;
+
+    vx_ci(:,1) = vx_components(:,start_id);
+    vy_ci(:,1) = vy_components(:,start_id);
+    vz_ci(:,1) = vz_components(:,start_id);
+
+    v0 = sqrt(vx_ci(:,1).^2 + vy_ci(:,1).^2 + vz_ci(:,1).^2);
+
+    distance_travelled_since_last_collision = zeros(size(x_ci,1),1);
+    collision_count = zeros(size(distance_travelled_since_last_collision));
+
+    t_id = 1;
+
+    time_i = zeros(1, ion_timesteps);
+    time_i(:,1) = [0];
+
+
+    % generate random positions for additional helium charges
+    % using inverse CDF
+    global additional_droplet_charges
+    ion_charge_positions = nan;
+    for i=1:additional_droplet_charges
+
+        u_sample = rand(num_molecules,1);
+        radius_ion = (u_sample).^(1/3).*droplet_radii(1:num_molecules);
+
+        %x_ion = (rand(num_molecules,1)-0.5).*droplet_radii(1:num_molecules);
+        %y_ion = (rand(num_molecules,1)-0.5).*droplet_radii(1:num_molecules);
+        %z_ion = (rand(num_molecules,1)-0.5).*droplet_radii(1:num_molecules);
+        beta= rand(size(radius_ion))*2*pi;
+        costheta = rand(size(radius_ion))*2 -1;
+        gamma = acos(costheta);
+
+        x_ion = radius_ion.*cos(beta).*sin(gamma);
+        y_ion = radius_ion.*sin(beta).*sin(gamma);
+        z_ion = radius_ion.*cos(gamma);
+
+
+
+        r_he_ion = [x_ion, y_ion, z_ion];
+        r_he_ion = [r_he_ion; r_he_ion]; % make copy for second iodine atom
+
+        if i==1
+            ion_charge_positions = nan(size(r_he_ion,1), size(r_he_ion,2), additional_droplet_charges);
+
+        end
+        ion_charge_positions(:,:,i)  = r_he_ion;
+
+        %scatter3(ion_charge_positions(:,1,i),ion_charge_positions(:,2,i),ion_charge_positions(:,3,i));
+        %hold on
+    end
+
+    % generate random sampled free paths for each particle
+    u_sample = rand(size(distance_travelled_since_last_collision));
+
+
+
+    mean_free_path_ion = get_v_dependent_mean_free_path(v0,  geometric_scattering_crosssection_Iplus);
+
+    free_path = -mean_free_path_ion.*log(1 - u_sample);
+    % free path distribution is approximately exponential: 10.1103/PhysRevE.77.041117
+
+
+    frog_step_crate = struct;
+    frog_step_crate.m = mass_i(:,1);
+    frog_step_crate.droplet_radii =droplet_radii;
+    frog_step_crate.droplet_force = droplet_force;
+    frog_step_crate.partner_interaction_ions = partner_interaction_ions;
+    frog_step_crate.charge_i = charge_i;
+    frog_step_crate.he_direction_scattering = he_direction_scattering;
+    frog_step_crate.additional_droplet_charges = additional_droplet_charges;
+    frog_step_crate.droplet_charge_model = droplet_charge_model;
+    frog_step_crate.ion_charge_positions = ion_charge_positions;
+
+    check_error = true;
+
+
+
+
+
+    % add observables
+    E_kin_ion = zeros(size(vx_ci));
+    E_pot_ion = zeros(size(vx_ci));
+    E_dissip_ion = zeros(size(vx_ci));
+    E_mass_attach_defect = zeros(size(vx_ci));
+
+    E_kin_ion(:,1) = [mass_i(:,1).*(vx_ci(:,1).^2 + vy_ci(:,1).^2).^2/2/eV];
+
+    E_pot_ion(:,1) = droplet_potential_ion( sqrt(x_ci(:,1).^2+ y_ci(:,1).^2) - droplet_radii);
+
+    L_droplet_ion = zeros(size(x_ci)); % pathlength traveled through droplet
+    % used for filtering later
+
+
+
+    diagnostic_array  = [];
+
+    while t_id<ion_timesteps
+
+
+        if time_i(:, t_id) >switchtime
+            dt = dt_coarse;
+        end
+
+        % get current masses
+        m = mass_i(:,t_id);
+        frog_step_crate.m = m;
+
+        % get current position at t_id
+        x0 = x_ci(:,t_id);
+        y0 = y_ci(:,t_id);
+        z0 = z_ci(:,t_id);
+
+        % get current velocities
+        vx0 = vx_ci(:,t_id);
+        vy0 = vy_ci(:,t_id);
+        vz0 = vz_ci(:, t_id);
+
+        if t_id ==1 & single_charge_ionization_allowed
+            [vx0_single_ionization,vy0_single_ionization,vz0_single_ionization] = add_single_ionization_vinit(x0,y0,z0, vx0,vy0,vz0,m, charge_i,I2plus_state_select_id);
+
+            v0test = sqrt(vx0_single_ionization.^2 +vy0_single_ionization.^2+vz0_single_ionization.^2)
+            test = 0;
+        end
+
+        if sum(imag(vx0))>0
+            test = 1;
+        end
+
+        v0_test = sqrt(vx0.^2 + vy0.^2 + vz0.^2);
+
+        [x1,y1,z1, vx1, vy1, vz1, E_pot_coulomb] = frog_step_ion(x0,y0,z0, vx0, vy0, vz0, frog_step_crate, dt);
+
+        vtest = sqrt(vx1.^2 + vy1.^2 + vz1.^2);
+
+        % calculate depth here!!
+        r1 = sqrt(x1.^2 + y1.^2 + z1.^2);
+        depth = r1 - droplet_radii;
+
+        % estimate error at start of simulation, where potentials are highest
+        if check_error
+            [x0_err,y0_err,z0_err, vx0_err, vy0_err, vz0_err] = frog_step_ion(x0,y0,z0, vx0, vy0, vz0, frog_step_crate, dt/2);
+            [x1_err,y1_err,z1_err, vx1_err, vy1_err, vz1_err] = frog_step_ion(x0_err,y0_err,z0_err, vx0_err, vy0_err, vz0_err, frog_step_crate, dt/2);
+
+            err_rel_x = abs((x1 - x1_err)./x1_err);
+            err_rel_y = abs((y1 - y1_err)./y1_err);
+            err_rel_z = abs((z1 - z1_err)./z1_err);
+
+            err_rel_vx = abs((vx1 - vx1_err)./vx1_err);
+            err_rel_vy = abs((vy1 - vy1_err)./vy1_err);
+            err_rel_vz = abs((vz1 - vz1_err)./vz1_err);
+
+            position_error = sqrt(err_rel_x.^2 + err_rel_y.^2 + err_rel_z.^2)*100;
+            velocity_error = sqrt(err_rel_vx.^2 + err_rel_vy.^2 + err_rel_vz.^2)*100;
+
+
+            if mean(position_error)>2|| mean(velocity_error)>2% if error is larger than 2 %, throw error
+                close all
+
+                tl = tiledlayout(1,2);
+                nexttile
+                bayes_hist(position_error);
+                nexttile
+                bayes_hist(velocity_error);
+                fprintf('mean position error: %.2g percent, ', mean(position_error));
+                fprintf('mean velocity error: %.2g percent \n', mean(velocity_error));
+                error(sprintf('timestep too large, t= %.2f, dt = %.3f\n',time_i(:, end-1), dt ));
+
+            end
+            check_error = false;
+
+        end
+
+        % after collisions with droplet wall, implement energy loss
+        v = sqrt(vx1.^2 + vy1.^2 + vz1.^2);
+        v_unit_x = vx1./v;
+        v_unit_y = vy1./v;
+        v_unit_z = vz1./v;
+
+
+
+        E0 =(v*100).^2.*m/2/eV;
+
+        % in case of no energy loss, set new energy to old energy
+        % this is used to keep track of the energy over time
+        E1 = E0;
+
+        if relative_energy_loss_ion
+
+            dE = heaviside(-depth).*E0*relative_ion_energy_loss_per_ps*dt*b_energy_loss.*(1 + randn(size(depth))*0.0);
+            E1 = max( [E0 - dE, zeros(size(E0)) + min(E_min, E0) ],[],2); % energy after energy loss is limited: to E_min or E_0 if E_0 was already smaller than E_min
+            % => no energy loss if atom is going slower than E_min
+
+
+
+
+            v = sqrt(2*E1*eV./m)/100;
+
+
+            vx1 = v.*v_unit_x;
+            vy1 = v.*v_unit_y;
+            vz1 = v.*v_unit_z;
+        end
+
+        b_collision = false(size(E0));
+        if hard_sphere_collisions_ion
+            % this section is based on Andreas Braun's phd thesis, section D.2
+
+
+
+
+
+            switch hard_sphere_collision_mode
+                case 1
+                    trial_random_number = rand(size(E0));
+                    b_collision = trial_random_number < scattering_probability & (depth <0);
+
+                case 2
+                    b_collision = (distance_travelled_since_last_collision> free_path) & (depth<0);
+
+                case 3 %
+
+                    if t_id>1
+                        distance_travelled_in_timestep =sqrt(   ( x_ci(:, t_id) - x_ci(:, t_id-1)).^2 + ...
+                            (y_ci(:, t_id) - y_ci(:, t_id-1)).^2 + ...
+                            (z_ci(:, t_id) - z_ci(:, t_id-1)).^2   );
+
+                        bulk_density_helium = 0.0219; % Angström ^-3
+                        density_droplet = 0.8*bulk_density_helium;
+                        trial_random_number = rand(size(E0));
+
+                        if sigma_dependent_on_v
+                            try
+                                %sigma = sigma_lookup(v)*0.8;
+                                sigma0 =  geometric_scattering_crosssection_Iplus;
+
+                                %sigma = (sigma0*3.2 - sigma0)* exp(-v/13) + sigma0;
+
+                                %sigma = sigma0*exp(-2*log(v));
+                                
+                                global sigma_ion_exponent
+                                sigma = sigma0*v.^(sigma_ion_exponent);
+
+                                % sigma = sigma0*exp(-1.7*log(v));
+                                % sigma = sigma0*exp(-1*log(v));
+
+                                v_debug = 0:0.1:30;
+                                sigma_debug =  (sigma0*3 - sigma0)* exp(-v_debug/15) + sigma0;
+                                sigma_debug = sigma0*exp(-2*log(v_debug));
+                                sigma_debug = sigma0*v_debug.^(sigma_ion_exponent);
+
+                                %plot(v_debug, sigma_debug)
+                                %set(gca,'Yscale', 'log')
+                                %xlabel(['v / ', char(0197) ,'/ ps']);
+                               % ylabel(['\sigma / ', char(0197), '^2']);
+                              %  grid on
+                                test = 1;
+                            catch ME
+                                test = 1;
+                            end
+
+                        else
+                            sigma = geometric_scattering_crosssection_Iplus;
+                        end
+
+
+                        p_scatter = distance_travelled_in_timestep.*sigma*density_droplet ;
+                        b_collision =(trial_random_number < p_scatter) & (depth<0);
+
+                        if time(1,start_id)>50
+                            test = 1;
+                            %                     scatter(v, p_scatter)
+                            %                     xlabel('velocity');
+                            %                     ylabel('scattering probability');
+
+                        end
+                        % todo: implement v dependent crosssection here
+                    else
+                        b_collision = false(size(E0));
+                    end
+
+
+            end
+
+            if DEBUG
+                b_collision = true(size(b_collision));
+            end
+
+
+
+            % no collision if energy is already below minimum energy
+            b_landau = E0 < E_min;
+            if sum(b_landau) ~=0
+                test = 1;
+            end
+
+            b_collision = b_collision & ~b_landau;
+
+
+
+            %sum(b_collision)
+            collision_count = collision_count + b_collision;
+            
+            number_of_collisions =[number_of_collisions, sum(b_collision)];
+
+            % due to geometry of hard sphere collision in 3d, the probability
+            % for a impact parameter is p(b) 2 pi b/ (pi R ^2) where R is the sum of
+            % radii of the colliding spheres
+            % the associated CDF is then CDF(b) = b^2/R^2
+            % using inverse CDF sampling, given random numbers x between zero
+            % and 1, the function ICDF(x) = sqrt(x) will yield random samples of b/R
+
+
+            impact_parameter_norm = sqrt( rand(size(E0))); % b/R
+            % sampling in this way guarantees that the fact that impact
+            % parameters b/R closer to one have a higher probability than impact
+            % parameters closer to zero (= grazing collisions are more likely
+            % than head on collisions)
+
+            COSTHETA = (2*impact_parameter_norm.^2 - 1) ; % costheta seems to be evenly distributed again
+            SINTHETA = sqrt(1- COSTHETA.^2);
+
+
+            COSTHETA(~b_collision ) = 1;
+            SINTHETA(~b_collision ) = 0;
+
+
+            % mass ratio
+            global scatter_mass_ion;
+            RHO = (m/u)/scatter_mass_ion;
+
+
+            % get new kinetic energy after scattering event
+            E1 = E0.* (1 + 2*RHO.*COSTHETA+ RHO.^2)./(1 + RHO).^2;
+
+            % THETA is the angle in the center of mass frame
+            % ==> transform to laboratory frame
+            COStheta = (COSTHETA+ RHO)./sqrt(1 + 2*RHO.*COSTHETA+ RHO.^2);
+
+            if sum(COStheta>1)>0
+                COStheta(COStheta>1) = 1;
+                warning('COStheta larger than 1!');
+
+            end
+
+            SINtheta= sqrt(1- COStheta.^2);
+            % COStheta = COSTHETA;
+            % SINtheta = SINTHETA;
+
+            % additional scrambling of angle without additional energy loss
+            %warning('additional angle scrambling is active for ion propagation!!!!1')
+
+            theta = acos(COStheta(b_collision)) + randn(size(COStheta(b_collision)))*ion_scatter_angle_std*pi/180;
+            COStheta(b_collision)  = cos(theta);
+            SINtheta(b_collision) = sqrt(1- COStheta(b_collision).^2);
+
+            % calculate unit vectors of plane normal to old velocity vector
+            % (velocity_normal_x and velocity_normal_y)
+            velocity_unit_vectors = [v_unit_x, v_unit_y, v_unit_z];
+
+            %reference_direction = [1,0,0]; % if reference direction is along one of the cartesian axis, there is a weird error where th scattering directions are not random but have a bias towards one direction
+
+
+            % a = velocity_unit_vectors(:,1);
+            %b = velocity_unit_vectors(:,2);
+            %c = velocity_unit_vectors(:,3);
+            % velocity_normal_1 = [b+c, c-a, -a-b]; % this also has a preferred direction..
+
+            reference_direction = rand(size(velocity_unit_vectors))-0.5;
+            reference_direction=  reference_direction./sqrt(sum( reference_direction.* reference_direction, 2));
+
+            velocity_normal_1 = cross(velocity_unit_vectors, reference_direction, 2);
+
+            velocity_normal_1 = velocity_normal_1./sqrt(sum(velocity_normal_1.*velocity_normal_1, 2));
+
+            %velocity_normal_1 = cross(velocity_unit_vectors,repmat( reference_direction, size(v_unit_x,1), 1), 2);
+            %velocity_normal_1= velocity_normal_1./sqrt( sum( velocity_normal_1.^2 ,2));
+
+            velocity_normal_2 = cross(velocity_unit_vectors,velocity_normal_1, 2);
+
+            % get random scattering direction in this plane
+
+            COSBETA = (rand(size(E0))-0.5)*2; % beta angle selects the velocity change direction in the plane normal to the incident velocity vector
+            SINBETA = sqrt(1 - COSBETA.^2);
+
+            % calculate new velocities
+            v_new = sqrt(2*E1*eV./m)/100;
+
+            v_normal = v_new.*SINtheta;
+            v_parallel = v_new.*COStheta;
+
+            new_velocity_vectors = velocity_unit_vectors.*v_parallel  ...
+                + velocity_normal_1.*COSBETA.*v_normal  + velocity_normal_2.*SINBETA.*v_normal;
+
+            %completely random new velocity
+            % new_velocity_vectors = reference_direction.*v_new;
+
+            %new_velocity_vectors =[ reference_direction(:,1).*v_new, reference_direction(:,2).*v_new, reference_direction(:,3).*v_new];
+
+            if sum(b_collision)>0
+                test = 1;
+            end
+
+
+            % check out the three orthonormal vectors
+            if DEBUG
+                %
+                % figure
+                % plot_vector([0,0,0], velocity_unit_vectors(1,:));
+                % hold on
+                % plot_vector([0,0,0],  velocity_normal_1(1,:));
+                % plot_vector([0,0,0],  velocity_normal_2(1,:));
+                % pbaspect([1,1,1])
+                %
+                % dot(velocity_normal_1(1,:), velocity_normal_2(1,:))
+                % dot(velocity_normal_1(1,:), velocity_unit_vectors(1,:))
+                %
+                % dot(velocity_unit_vectors(1,:), velocity_normal_2(1,:))
+                %
+                % dot(velocity_unit_vectors(1,:), velocity_normal_1(1,:))*180/pi
+                % dot(velocity_unit_vectors(1,:), velocity_normal_2(1,:))*180/pi
+                %
+                % norm(velocity_unit_vectors(1,:))
+                % norm(velocity_normal_2(1,:))
+                % norm(velocity_normal_1(1,:))
+                close all
+                figure
+
+
+                plot_vector([0,0,0], velocity_unit_vectors(1,:)*v(1));
+                hold on
+                plot_vector([0,0,0],  velocity_normal_1(1,:));
+                plot_vector([0,0,0],  velocity_normal_2(1,:));
+
+                pbaspect([1,1,1])
+                xlim([-5,5])
+                ylim([-5,5])
+                zlim([-5,5]);
+
+                plot_vector([0,0,0],velocity_unit_vectors(1,:).*v_parallel(1));
+                hold on
+                plot_vector([0,0,0],   + velocity_normal_1(1,:).*COSBETA(1).*v_normal(1)  + velocity_normal_2(1,:).*SINBETA(1).*v_normal(1))
+
+                plot_vector([0,0,0],  new_velocity_vectors(1,:));
+
+                legend({'initial v', 'vnx', 'vny', 'new v parallel', 'new v normal', 'new v'});
+
+                id_collisions = 1:length(b_collision);
+
+                id_collisions = id_collisions(b_collision);
+                if length(id_collisions)>0
+                    % check if the angle between old and new vectors is correct
+                    fprintf('angle old vs new %.2f, acos(cos(theta)) %.2f, asin(sin(theta)) %.2f\n',dot(velocity_unit_vectors(id_collisions(1),:), new_velocity_vectors(id_collisions(1),:)') /norm(new_velocity_vectors(id_collisions(1),:))*180/pi,...
+                        acos(COStheta(id_collisions(1)))*180/pi,...
+                        asin(SINtheta(id_collisions(1)))*180/pi)
+                end
+
+
+                %return
+
+            end
+
+
+            if sum(imag(new_velocity_vectors(:)))>0
+                test = 1;
+            end
+
+            vx1 = new_velocity_vectors(:,1);
+            vy1 = new_velocity_vectors(:,2);
+            vz1 = new_velocity_vectors(:,3);
+
+            % end of hard sphere collisions
+            mean_rel_kinetic_energy_change = mean(E1(b_collision)./E0(b_collision));
+
+            diagnostic_values = [mean_rel_kinetic_energy_change,  mean((1+RHO(b_collision).^2)./(1+RHO(b_collision)).^2), mean(theta)]; % theta is already only from the colliding atoms
+            diagnostic_array = [diagnostic_array; diagnostic_values];
+        end
+
+
+        actual_dE = E0 - E1;
+
+        b_decelerated = actual_dE>0;
+
+        mass_difference = zeros(size(m));
+        % calculate new free path for each particle
+        if hard_sphere_collisions_ion
+            if sum(b_collision)>0
+
+
+                scattering_angle = acos(mean(COSTHETA(b_collision)));
+                percent_energy_loss = mean(actual_dE(b_collision))/mean(E0(b_collision));
+
+                if hard_sphere_collision_mode==2 || hard_sphere_collision_mode==3
+                    % important step: set distance traveled to zero if collision happened!
+
+                    % remove to save time
+                    % distances_travelled_before_collision = [distances_travelled_before_collision; distance_travelled_since_last_collision(b_collision)];
+
+                    distance_travelled_since_last_collision(b_collision) = 0;
+
+                    u_sample = rand(size(distance_travelled_since_last_collision(b_collision)));
+
+
+                    % calculate new mean free path based on current ion velocity dependent
+                    % crosssection
+                    v = sqrt( vx1(b_collision).^2 + vy1(b_collision).^2 + vz1(b_collision).^2 ) ;
+                    mean_free_path_ion = get_v_dependent_mean_free_path(v, geometric_scattering_crosssection_Iplus );
+
+                    free_path(b_collision) = -mean_free_path_ion.*log(1 - u_sample);
+                end
+
+
+            end
+
+
+
+
+            % attach mass with some rate
+            mass_attach_trial = rand(size(b_collision));
+            global mass_attach_probability
+
+            b_mass_attach = (mass_attach_trial <mass_attach_probability ) & b_collision;
+
+            m_old = m;
+            m = m+ b_mass_attach*4*u;
+            mass_difference = m - m_old;
+
+            test = 1;
+
+        end
+
+
+        % add new data to vectors
+        vx_ci(:, t_id+1) = vx1;
+        vy_ci(:, t_id+1) = vy1;
+        vz_ci(:, t_id+1) = vz1;
+
+        x_ci(:, t_id+1) = x1;
+        y_ci(:, t_id+1) = y1;
+        z_ci(:, t_id+1) = z1;
+
+        %  ax_ci(:,t_id+1) = ax1;
+        %  ay_ci(:,t_id+1) = ay1;
+        %  az_ci(:,t_id+1) = az1;
+
+        time_i(:, t_id+1) = time_i(:,t_id) + dt;
+
+        mass_i(:, t_id+1) = m;
+
+
+        v = sqrt(vx1.^2 + vy1.^2 + vz1.^2);
+
+        E_kin_ion(:, t_id + 1) = mass_i(:,t_id+1).*(v*100).^2/2/eV ;
+        E_mass_attach_defect(:,t_id+1) =E_mass_attach_defect(:,t_id)  -mass_difference.*(v*100).^2/2/eV;
+
+        % this E_pot still misses coulomb energy
+        E_pot_ion(:,t_id+1) = droplet_potential_ion( sqrt(x1.^2+ y1.^2 + z1.^2) - droplet_radii)/empirical_potential_factor +  E_pot_coulomb;
+        E_dissip_ion(:,t_id+1) = E_dissip_ion(:,t_id) + actual_dE;
+
+
+        distance_traveled = sqrt( (x_ci(:, t_id+1) - x_ci(:, t_id)).^2 + ...
+            (y_ci(:, t_id+1) - y_ci(:, t_id)).^2 + ...
+            (z_ci(:, t_id+1) - z_ci(:, t_id)).^2);
+
+        distance_travelled_since_last_collision = distance_travelled_since_last_collision + distance_traveled;
+
+
+        % if still inside droplet (depth<0) add distance travel this timestep
+        % L_droplet_ion(:, t_id+1) = L_droplet_ion(:, t_id) + (depth<0).*sqrt(lx.^2 + ly.^2 + lz.^2);
+
+
+        t_id = t_id+1;
+
+
+    end
+
+    % extract cumulative number of collisions
+    %figure
+    %plot(time_i(1,1:end-1), cumsum( sum( number_of_collisions ,1)));
+   % savefig(gcf, sprintf('collisions_cumsum_ions/collisions_%.3f.fig',dt_fine) )
+ 
+ %   test = 1;
+
+
+    if start_id == last_id
+        figure
+        v_ion = sqrt(vx_ci.^2 + vy_ci.^2 + vz_ci.^2);
+        plot(v_ion');
+        title('ion velocities')
+        figure
+        r_ion = sqrt(x_ci.^2+ y_ci.^2 + z_ci.^2);
+        plot(r_ion');
+        title('ion distance from center')
+
+        figure
+        diff_r_ion = sqrt((x_ci(1:num_molecules,:) - x_ci(num_molecules+1:end,:)).^2 + (y_ci(1:num_molecules,:) - y_ci(num_molecules+1:end,:)).^2 + (z_ci(1:num_molecules,:) - z_ci(num_molecules+1:end,:)).^2);
+        plot(diff_r_ion');
+        title('distances between partner ions')
+
+        diff0 = sqrt((x_ci(:,1) - circshift(x_ci(:,1),num_molecules)).^2 + (y_ci(:,1) - circshift(y_ci(:,1), num_molecules)).^2 + (z_ci(:,1) - circshift(z_ci(:,1),num_molecules)).^2 );
+
+        % diff = sqrt((x0 - circshift(x0,num_molecules)).^2 + (y0 - circshift(y0, num_molecules)).^2 + (z0 - circshift(z0,num_molecules)).^2 );
+        %scatter(diff, sqrt(a_potx.^2 + a_poty.^2 + a_potz.^2) )
+        figure
+        r_ion = sqrt(x_ci.^2+ y_ci.^2 + z_ci.^2);
+        plot(r_ion', v_ion');
+        title('ion velocity over ion distance from center')
+
+
+        figure
+        scatter(diff0, v_ion(:,end) - v_ion(:,1)); % plot coulomb velocity gain over initial interatomic distance
+
+
+        test = 1;
+
+      
+    end
+
+    % add final velocities and positions of the ion propagation run
+    % as the final velocities at each timestep
+    vx_total(:,start_id) = vx_ci(:,end);
+    vy_total(:,start_id) = vy_ci(:,end);
+    vz_total(:,start_id) = vz_ci(:,end);
+
+    x_ci_final(:,start_id) = x_ci(:,end);
+    y_ci_final(:,start_id) = y_ci(:,end);
+    z_ci_final(:,start_id) = z_ci(:,end);
+
+    mass_i_final(:,start_id) = mass_i(:,end);
+
+    % the last full ion trajectories are x_ci, y_ci and z_ci
+    % last ion velocities are vx_ci, vy_ci and vz_ci
+
+    % reduce size of ion trajectories
+    reduction_timesteps = 3;
+    x_ci = x_ci(:,1:reduction_timesteps:end);
+    y_ci = y_ci(:,1:reduction_timesteps:end);
+    z_ci = z_ci(:,1:reduction_timesteps:end);
+
+    vx_ci = vx_ci(:,1:reduction_timesteps:end);
+    vy_ci = vy_ci(:,1:reduction_timesteps:end);
+    vz_ci = vz_ci(:,1:reduction_timesteps:end);
+
+    time_i = time_i(1:reduction_timesteps:end);
+    mass_i = mass_i(:,1:reduction_timesteps:end);
+    E_kin_ion = E_kin_ion(:,1:reduction_timesteps:end);
+    E_pot_ion = E_pot_ion(:,1:reduction_timesteps:end);
+    E_dissip_ion = E_dissip_ion(:,1:reduction_timesteps:end);
+    E_mass_attach_defect = E_mass_attach_defect(:,1:reduction_timesteps:end);
+    L_droplet_ion = L_droplet_ion(:,1:reduction_timesteps:end);
+
+
+
+    % debug plots
+    % plot(sqrt(vx_ci.^2 + vy_ci.^2 + vz_ci.^2)')
+    % plot(sqrt(x_ci.^2+ y_ci.^2 + z_ci.^2)');
+
+    %plot( sqrt(  (x_ci(1:num_molecules,:) - x_ci(num_molecules +1:end,:)).^2 +    (y_ci(1:num_molecules,:) - y_ci(num_molecules +1:end,:)).^2  +   (z_ci(1:num_molecules,:) - z_ci(num_molecules +1:end,:)).^2 )');
+
+    fprintf('start id: %.0f done!\n ', start_id)
+end
+
+v = sqrt(vx_total.^2 + vy_total.^2 + vz_total.^2);
+depth_ion_final = sqrt(x_ci_final.^2 + y_ci_final.^2 + z_ci_final.^2)- droplet_radii;
+b_ion_outside = depth_ion_final>0;
+
+
+E_system = E_kin_ion + E_pot_ion + E_dissip_ion + E_mass_attach_defect;
+
+close all
+
+      global effusive_dynamics
+        if ~effusive_dynamics
+            figure
+            plot(time_i,diagnostic_array(1:reduction_timesteps:end,1:2));
+            hold on
+
+            xlabel(' t / ps');
+            ylabel("<T'/T>");
+
+            yyaxis right
+            plot(time_i, diagnostic_array(1:reduction_timesteps:end,3)*180/pi);
+            ylabel('<\theta> / °');
+            legend("actual <T'/T>", "<T'/T> from mass ratio", "<\theta>");
+        end
+
+
+figure
+% check energy conservation
+plot(time_i, sum(E_kin_ion,1)/num_molecules);
+hold on
+plot(time_i,sum(E_pot_ion,1)/num_molecules);
+plot(time_i,sum(E_dissip_ion,1)/num_molecules);
+plot(time_i,sum(E_mass_attach_defect,1)/num_molecules);
+
+plot(time_i,sum(E_system,1)/num_molecules);
+% note: setting mass attachment to on, creates an error in the total system
+% energy
+legend({'E_{kin}', 'E_{pot}', 'E_{dissip}', 'E_{mass attach}', 'E_{system}'});
+ylabel('energy per molecule/ eV');
+xlabel('t / ps');
+title('energy balance ions');
+savefig(gcf, 'T:\github synchronized\I2HeN_velocity_simulation\debug_images\ion_energy');
+
+
+test = 1;
+if single_pulse
+    cd('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation');
+end
+
+if effusive_dynamics
+    fn = 'ion_propagation_checkpoint_gas';
+else
+    if single_droplet_size & single_initial_position 
+        fn = 'ion_propagation_checkpoint_hedft';
+    else
+        fn = 'ion_propagation_checkpoint';
+
+    end
+
+end
+
+save(fn, 'vx_total', 'vy_total', 'vz_total', ...
+    'x_ci_final', 'y_ci_final' ,'z_ci_final','mass_i_final', ...
+    'vx_ci', 'vy_ci', 'vz_ci', 'x_ci', 'y_ci', 'z_ci','E_kin_ion', 'E_pot_ion', 'mass_i','time_i',...
+    'b_ion_outside', 'relative_ion_energy_loss_per_ps', 'number_of_collisions', ...
+    'binding_energy_I_ion');
+
+
