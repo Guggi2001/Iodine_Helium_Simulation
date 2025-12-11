@@ -1,6 +1,6 @@
 %% goal: calculate I+ velocity dependent crosssection of I+ He collision
 %% intermediate step: yukawa potential
-
+addpath(fullfile(pwd, 'plot_utility'));
 set_groot_properties % set graphics root properties so it looks nicer
 
 % define physical constants
