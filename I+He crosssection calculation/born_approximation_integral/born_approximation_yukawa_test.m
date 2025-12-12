@@ -8,7 +8,9 @@ run physical_constants
 hbar_SI = 1.05457182E-34;
 fs = 1E-15;
 
-
+m1 = 127; 
+m2 = 4;
+mu = m1*m2/(m1+m2); %reduced mass
 
 %% define yukawa potential for testing
 alpha = 1; %  range parameter in 1/Angström
@@ -18,16 +20,11 @@ V0 = 20; % scale of potential in eV
 V = @(x) V0*exp(-alpha*x)./x;
 
 
-
 %% plot the potential
 figure
 x = 1.9:0.01:25;
 plot(x, V(x)*1000);
 xlabel('r / Angström'); ylabel('E / meV');
-
-
-
-
 
 
 %% direct integral from book
@@ -39,22 +36,17 @@ rmin = 0; rmax = 50;
 v_array = (1:100:2200);
 theta_array = linspace(-pi,pi, 100);
 
-
 sigma = zeros(length(v_array), length(theta_array));
-
 counter = 0;
 
 
-%% direct computation of fourier transform for each value of velocity and
-% angle
+%% direct computation of fourier transform for each value of velocity and angle
 for i = 1:length(v_array)
     for j = 1:length(theta_array)
     	
         % fetch entries of arrays in each loop
         theta = theta_array(j);
         v = v_array(i);
-
-
 
         k0 = mu*u*v/hbar_SI; % wavevector of incoming wave, B-14, Chapter VIII
 
@@ -64,7 +56,7 @@ for i = 1:length(v_array)
         % prefactor for integral
         prefactor = -2*mu*u/hbar_SI.^2./K; % % complement C_Viii, equation (4)
 
-        %% try different numberical integration methods
+        %% try different numerical integration methods
 
         %integrand = (r*1E-10).*sin((r*1E-10).*K).*V(r)*eV;
         %f = trapz(r, integrand)*prefactor;
@@ -100,6 +92,26 @@ end
 sigma_total = trapz(theta_array, sigma,2);
 
 
+%% fit v-dependence
+figure
+
+normalization = 1;
+
+plot(v_array, sigma_total/normalization);
+hold on 
+
+% perform fit of the total crosssection using power law
+fit_function = @(beta, logv) beta(1) + logv*beta(2);
+
+beta = nlinfit(log(v_array)', log(sigma_total), fit_function, [log(max(sigma_total)), -1])
+plot(v_array, exp(fit_function(beta, log(v_array))));
+leg = ['fit, \sigma = ', replace( sprintf(' %.1e x v^{%.2f}', exp(beta(1)), beta(2) ) , 'x', '\times')];
+    
+set(gca, 'YScale', 'log');
+xlabel('v / m/s')
+ylabel('\sigma / m^{-2}')
+legend(leg);
+
 %% plot the numerical crosssection against the analytical result for the yukawa potential
 figure
 plot(v_array, sigma_total)
@@ -131,9 +143,9 @@ legend('numerical', 'analytical');
 figure
 colormap(colorcet('L07')); % colormaps, for available options see: https://colorcet.com/gallery.html#linear
 
-tl = tiledlayout(1,3);
+%tl = tiledlayout(1,3);
 
-nexttile
+% nexttile
 
 surface(v_array', theta_array', sigma');
 
@@ -141,8 +153,9 @@ xlabel('v / m/s'); ylabel('\theta / radian');
 cb = colorbar;
 cb.Label.String = '\sigma / m^{-2}';
 
+title('numerical solution')
 
-nexttile
+% nexttile
 
 surface(v_array', theta_array', sigma_yukawa' );
 
@@ -150,11 +163,17 @@ xlabel('v / m/s'); ylabel('\theta / radian');
 cb = colorbar;
 cb.Label.String = '\sigma / m^{-2}';
 
-nexttile
+title('analytial solution')
+
+% nexttile
 
 surface(v_array', theta_array', sigma_yukawa' - sigma');
+
+title('difference')
 
 xlabel('v / m/s'); ylabel('\theta / radian');
 
 
+f = gcf;
+f.Position = [0.4130    0.5418    1.1520    0.4200]*1000;
 

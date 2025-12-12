@@ -8,11 +8,13 @@ run physical_constants
 hbar_SI = 1.05457182E-34;
 fs = 1E-15;
 
-
+m1 = 127; 
+m2 = 4;
+mu = m1*m2/(m1+m2); %reduced mass
 
 %% define  potential
 %I+ He potential from A. A. Buchachenko, T. V. Tscherbul, J. Klos, M. M.
-%Szcz¸e´sniak G. Chalasi´nsk, R. Webb, and L.A. Viehland
+%SzczÂ¸eÂ´sniak G. ChalasiÂ´nsk, R. Webb, and L.A. Viehland
 %J. Chem. Phys. 122, 194311 (2005)
 
 % type in the parameters from the EPAPS.txt repository file
@@ -27,8 +29,6 @@ D6 =  0.1117964e+6;
 D8 = 0.7710727e+6;
 
 eV_per_wavenumber = 1/8065.54429;
-
-
 
 l = 0:8;
 x = 1.9:0.01:25;
@@ -63,59 +63,83 @@ V_original= @(R) (VLR(R)*1 + VSR(R))* eV_per_wavenumber ;
 softstep = @(R, R0) (erf((R- R0)/0.01) + 1)/2;
 
 
-% create modified potential which is well behaved below 2 Angström
-R_switch = 3;
+% create modified potential which is well behaved below 2 AngstrÃ¶m
+R_switch = 2;
 V = @(R) V_original(R) .*softstep(R, R_switch) + V_original(R_switch)* (1-softstep(R, R_switch));
 
 
 
 %% plot the potentials (modified and original)
-
 figure
-x = 0:0.01:25;
+x = 0.01:0.01:25;
 plot(x, V(x)*1000);
-
 hold on
 plot(x, V_original(x)*1000)
-
-ylim([min(V(x)*1000), max(V(x)*1000)])
-
-legend('clamped potential', 'original potential')
+% ylim([min(V(x)*1000), max(V(x)*1000)])
+ylim([0, 1e6])
 
 
+%% Lennard-Jones Regularized Potentials 
+% Parameters
+eps = .01784;            % Depth of the potential well
+sig = 3.25/2^(1/6);              % Characteristic length scale
+regpar = 0.05 * sig;       % Soft-core regularization parameter
+rc = 0.05 * sig;       % Cutoff radius for exponential damping
+n = 8;                  % Damping exponent
+
+% Distance range
+r = linspace(0.5*sig, 3*sig, 1000);
+
+% --- Lennard-Jones Potential
+V_LJ = @(b, r) 4*b(1)*[(b(2)./r).^12 - (b(2)./r).^6];
+
+% --- Soft-Core Regularization
+V_soft = @(b, r) 4 * b(1) * ( ((b(2)^2 + b(3)^2) ./ (r.^2 + b(3)^2)).^6 - ((b(2)^2 + b(3)^2) ./ (r.^2 + b(3)^2)).^3 );
+
+% --- Exponential Damping Regularization
+damping = 1 - exp( - (r ./ rc).^n );
+V_exp = @(b,r) V_LJ([b(1), b(2)], r) .* (1 - exp( - (r ./ b(3)).^b(4) ));
+
+plot(x, V_LJ([eps, sig], x)*1000);
+plot(x, V_soft([eps, sig, regpar], x)*1000);
+plot(x, V_exp([eps, sig, rc, n], x)*1000);
+
+xlim([0 5]);
+ylim([-20 100]);
+legend('clipped', 'original', 'Lennard-Jones','soft-core', 'exp cutoff')
 xlabel('r / Angström'); ylabel('E / meV');
 
+close gcf
+
+%% fit Lennard Jones potential
+% x_LJ = x(x>2.5);
+% beta = nlinfit(x_LJ, V_original(x_LJ), V_LJ, [.018, 3]);
 
 %% try out multiple R_switch values by looping over possible choices, and redefining the potential each time
 figure
 ax = axes;
 
-%R_switch_values =0.8:0.2:2.8;
-R_switch_values = 1.8;
+% R_switch_values =0.8:0.2:2.8;
+R_switch_values = 1;
 
 leg = {}; % cell array to hold legend entries, which are filled during each loop
 for id =1:length(R_switch_values)
 R_switch = R_switch_values(id);
-
 
 leg{end+1} = ['R_{switch} = ', sprintf('%.1f', R_switch)];
 
 V = @(R) V_original(R) .*softstep(R, R_switch) + V_original(R_switch)* (1-softstep(R, R_switch));
 
 
-
 %% direct integral from book
 % Quantum Mechanics, Volume 2 Angular Momentum, Spin, and Approximation Methods
 
-rmin = 0; rmax = 100;
+rmin = 0; rmax = 1e12;
 
-% arrays for the sigma calculation
-v_array = (1:100:2200);
+% arrays for the sig calculation
+v_array = (10:100:2200);
 theta_array = linspace(-pi,pi, 100);
-
-
 sigma = zeros(length(v_array), length(theta_array));
-
 counter = 0;
 
 
@@ -127,8 +151,6 @@ for i = 1:length(v_array)
         % fetch entries of arrays in each loop
         theta = theta_array(j);
         v = v_array(i);
-
-
 
         k0 = (mu*u)*v/hbar_SI; % wavevector of incoming wave, B-14, Chapter VIII
 
@@ -145,8 +167,13 @@ for i = 1:length(v_array)
         % ==> trapz for the radial integral is not good enough
 
         % better: use integral method which takes a function as the argument
-        integrand = @(z) (z*1E-10).*sin((z*1E-10).*K).*V(z)*eV; % complement C_Viii, equation (4)
+%         integrand = @(z) (z*1E-10).*sin((z*1E-10).*K).*V(z)*eV; % complement C_Viii, equation (4)
+         integrand = @(z) (z*1E-10).*sin((z*1E-10).*K).*V_exp([eps, sig, rc, n],z)*eV;
         f = integral(integrand, rmin, rmax, 'AbsTol',0.00000001)*prefactor;
+
+        % V_LJ([eps, sig];
+        % V_soft([eps, sig, regpar]
+        % V_exp([eps, sig, rc, n]
 
 
         % put the obtained value for the crosssection into a matrix
@@ -177,14 +204,23 @@ sigma_total = trapz(theta_array, sigma,2);
 %% plot the numerical crosssection against the analytical result for the yukawa potential
 colors = colormap(colorcet('L08', 'N', length(R_switch_values)+1));
 
-
 normalization = trapz(v_array, sigma_total);
 normalization = 1;
 
 plot(ax, v_array, sigma_total/normalization , 'color', colors(id,:));
-
-
 hold on 
+
+% perform fit of the total crosssection using power law
+fit_function = @(beta, logv) beta(1) + logv*beta(2);
+
+if numel(R_switch_values) ==1
+
+%     beta = nlinfit(log(v_array)', log(sigma_total), fit_function, [log(max(sigma_total)), -1])
+%     plot(v_array, exp(fit_function(beta, log(v_array))));
+%     leg{end+1} = ['fit, \sigma = ', replace( sprintf(' %.1e x v^{%.2f}', exp(beta(1)), beta(2) ) , 'x', '\times')];
+    
+end
+
 
 end
 
@@ -200,9 +236,9 @@ legend(leg);
 figure
 colormap(colorcet('L07')); % colormaps, for available options see: https://colorcet.com/gallery.html#linear
 
-tl = tiledlayout(1,1);
+% tl = tiledlayout(1,1);
 
-nexttile
+% nexttile
 
 surface(v_array', theta_array', sigma');
 
@@ -211,4 +247,4 @@ cb = colorbar;
 cb.Label.String = '\sigma / m^{-2}';
 view(45,45);
 
-
+close gcf
