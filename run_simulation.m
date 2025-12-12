@@ -5,8 +5,9 @@ clear all
 clc
 
 
-setup_VMI_path_office_SSD  % establish VMI paths, needed for comparison to measurements
-%setup_VMI_path_office_flir
+%setup_VMI_path_office_SSD  % establish VMI paths, needed for comparison to measurements
+addpath 'T:\github synchronized\VMI_matlab'
+setup_VMI_path_office_flir
 
 physical_constants
 
