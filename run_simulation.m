@@ -1,11 +1,8 @@
 
 %% define variables
-close all 
-clear all
-clc
+close all; clearvars; clc
 
 
-%setup_VMI_path_office_SSD  % establish VMI paths, needed for comparison to measurements
 addpath 'T:\github synchronized\VMI_matlab'
 setup_VMI_path_office_flir
 
@@ -18,17 +15,20 @@ Xdip_active = true; % include additional dip in ground state I2 potential
 global DEBUG 
 DEBUG =false;
 
-cd 'T:\github synchronized\I2HeN_velocity_simulation'
-addpath 'T:\github synchronized\I2HeN_velocity_simulation'
-addpath additional_functions\
-addpath plot_utility\ 
-addpath plot_utility\colorcet
-addpath 'result images'\
-addpath supplementary_data\
-addpath T:\github synchronized\I2HeN_velocity_simulation\inputfiles_dft_comparison
-
-
-addpath 'T:\github synchronized\I2HeN_velocity_simulation\inputfiles'
+runFile = which('run_simulation.m');
+assert(~isempty(runFile), 'run_simulation.m not found on Matlab path.');
+projectRoot = fileparts(runFile);
+cd(projectRoot);
+disp(runFile)
+disp(projectRoot)
+addpath(projectRoot);
+addpath(fullfile(projectRoot,'additional_functions'));
+addpath(fullfile(projectRoot,'plot_utility'));
+addpath(fullfile(projectRoot,'plot_utility','colorcet'));
+addpath(fullfile(projectRoot,'supplementary_data'));
+addpath(fullfile(projectRoot,'inputfiles'));
+addpath(fullfile(projectRoot,'inputfiles_dft_comparison'));
+addpath(fullfile(projectRoot,'result images'));
 
 set_groot_properties % graphics settings
 
@@ -42,7 +42,7 @@ v_limit = 40; % in m/s
 
 
 global sigma_ion_exponent
-sigma_ion_exponent = -1;
+sigma_ion_exponent = -2;
 
 
 % define these here, these variables are overwritten by the pumpprobe input
@@ -58,12 +58,13 @@ global E_diss; E_diss = 1.556*eV;
 % He DFT comparison inputfiles
 %run inputfiles_dft_comparison\single_pulse_N2000.m  
 
-%run inputfiles_dft_comparison\single_pulse_droplet_distribution.m 
+run inputfiles_dft_comparison\single_pulse_droplet_distribution.m 
+
 
 %run inputfiles_dft_comparison\single_pulse_gas_distribution.m
 
 %% single pulse inputs for v^-1 tests
-run inputfiles_dft_comparison\single_pulse_N2000_18Angst.m
+%run inputfiles_dft_comparison\single_pulse_N2000_18Angst.m
 %run inputfiles_dft_comparison\single_pulse_droplet_distribution_v_minus_one.m 
 
 %% pumpprobe  inputs
@@ -109,7 +110,26 @@ run inputfiles_dft_comparison\single_pulse_N2000_18Angst.m
 % single_droplet_size = 12800;
 % single_initial_position = true; % if true, all molecules start at the center of the droplet
 
-
+%%
+disp('--- Key simulation parameters after inputfile ---')
+varsToPrint = {'single_pulse','num_molecules', ...
+    'geometric_scattering_crosssection_I','geometric_scattering_crosssection_Iplus', ...
+    'binding_energy_I_ion','binding_energy_I_neutral', ...
+    'use_single_droplet_size','single_droplet_size', ...
+    'sigma_dependent_on_v','sigma_ion_exponent','v_limit'};
+for k = 1:numel(varsToPrint)
+    if evalin('base', sprintf('exist(''%s'',''var'')', varsToPrint{k}))
+        val = evalin('base', varsToPrint{k});
+        if isnumeric(val) && isscalar(val)
+            fprintf('%s = %.6g\n', varsToPrint{k}, val);
+        else
+            fprintf('%s = [non-scalar or non-numeric]\n', varsToPrint{k});
+        end
+    else
+        fprintf('%s = [NOT DEFINED]\n', varsToPrint{k});
+    end
+end
+disp('----------------------------------------------')
 
 
 
@@ -119,7 +139,8 @@ end
 
 
 %%
-global sigma_dependent_on_v
+% Neutral stage: force constant sigma for stability / model choice
+
 sigma_dependent_on_v = false;
 vmi_sim_3d_neutral_propa_HeDFT_mimic;
 
@@ -130,37 +151,36 @@ vmi_sim_3d_neutral_propa_HeDFT_mimic;
 
 
 
-
 sigma_dependent_on_v = true;
 vmi_sim_3d_ion_propa;
 
 
 
 %%
-global single_pulse
-if single_pulse
-      %  vmi_sim_post_process;
+% if single_pulse
+%       %  vmi_sim_post_process;
+% 
+%         %test = 1;
+%     post_process_single_pulse_paper_v3;
+%     %compare_dft_result;
+% else
+%     vmi_sim_post_process('pumpprobe');
+% 
+% end
+% 
+% return
 
-        %test = 1;
-    post_process_single_pulse_paper_v3;
-    %compare_dft_result;
-else
-    vmi_sim_post_process('pumpprobe');
-
-end
-
-return
-figures = findall(groot,'Type','figure');
-
-if use_single_droplet_size
-    result_path = sprintf('N%.0f_sigN%.0f_sigI%.0f_N%.0f_He+_%.0f', num_molecules, geometric_scattering_crosssection_I, geometric_scattering_crosssection_Iplus, single_droplet_size,additional_droplet_charges);
-else
-
-result_path = sprintf('N%.0f_sigN%.0f_sigI%.0f_p%.0f_T%.0f_He+%.0f', num_molecules, geometric_scattering_crosssection_I, geometric_scattering_crosssection_Iplus, p_source, T_source,additional_droplet_charges);
-end
-
-mkdir("result images\"+result_path+"\");
-
-for i=1:length(figures)
-    savefig(figures(i), "result images\"+result_path+"\"+sprintf('fig%.0f', i))
-end
+% figures = findall(groot,'Type','figure');
+% 
+% if use_single_droplet_size
+%     result_path = sprintf('N%.0f_sigN%.0f_sigI%.0f_N%.0f_He+_%.0f', num_molecules, geometric_scattering_crosssection_I, geometric_scattering_crosssection_Iplus, single_droplet_size,additional_droplet_charges);
+% else
+% 
+% result_path = sprintf('N%.0f_sigN%.0f_sigI%.0f_p%.0f_T%.0f_He+%.0f', num_molecules, geometric_scattering_crosssection_I, geometric_scattering_crosssection_Iplus, p_source, T_source,additional_droplet_charges);
+% end
+% 
+% mkdir("result images\"+result_path+"\");
+% 
+% for i=1:length(figures)
+%     savefig(figures(i), "result images\"+result_path+"\"+sprintf('fig%.0f', i))
+%end

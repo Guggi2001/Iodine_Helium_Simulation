@@ -1,4 +1,4 @@
-addpath 'T:\github synchronized\I2HeN_velocity_simulation'
+addpath 'T:\github synchronized\Iodine_Helium_Simulation'
 % if running without prior simulation, do this:
 %run inputfiles_dft_comparison\single_pulse_droplet_distribution.m 
 
@@ -7,21 +7,24 @@ run physical_constants.m
 global abel_inv_post
 abel_inv_post = true;
 
+if exist('diff','var')
+    clear diff
+end
 
 %% load marti data
 
 global R0_GS
 switch R0_GS
     case 9
-        addpath('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\HeDFT_comparison\9Angström\')
-        [t, v] = importfile_v2('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\HeDFT_comparison\9Angström\data_vabs2.csv');
+        addpath('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\HeDFT_comparison\9Angström\')
+        [t, v] = importfile_v2('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\HeDFT_comparison\9Angström\data_vabs2.csv');
         v = abs(v);
         
-        [tR, R] = importfile_R1_R2('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\HeDFT_comparison\9Angström\R1-R2.csv');
+        [tR, R] = importfile_R1_R2('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\HeDFT_comparison\9Angström\R1-R2.csv');
 
 
     case 18
-        addpath('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\HeDFT_comparison\18Angström');
+        addpath('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\HeDFT_comparison\18Angström');
         importpath = 'T:\Cloud\MATLAB iodine\MartiPiNotes\impurities_dynamics\impurities_dynamics\';
 
         R1 = importfile_marti([importpath, 'rimp.I_1']);
@@ -37,19 +40,86 @@ switch R0_GS
         v = sqrt(sum(V2.vec.^2,2));
 end
 
-
 %% post processing
 close all
 global single_pulse
 if single_pulse
-  data_neutral = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\neutral_propagation_checkpoint');
+  data_neutral = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\neutral_propagation_checkpoint');
  %  [vx_total, vy_total, vz_total] = add_cei_vel_to_vel_3d(x_components, y_components,z_components,  vx_components, vy_components , vz_components, mass);
 
-
-
-data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint_hedft.mat');
 end
 
+data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint_hedft.mat');
+%%
+% run 'T:\github synchronized\Iodine_Helium_Simulation\inputfiles_dft_comparison\single_pulse_N2000.m'
+% for i = 1:3
+%     global E_coulomb_scale
+%     E_coulomb_scale = 1.1-i*0.1;
+%     sigma_dependent_on_v = false;
+%     vmi_sim_3d_neutral_propa_HeDFT_mimic;
+%     sigma_dependent_on_v = true;
+%     vmi_sim_3d_ion_propa;
+%     data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint_hedft.mat');
+%     disp('-----------------------')
+%     fprintf('Quantify the mismatch across the whole overlap interval for a Coulomb Energy of %3f \n', E_coulomb_scale)
+%     
+%     Nmol = size(data_ion.x_ci,1)/2;
+%     dx = data_ion.x_ci(1:Nmol,:) - data_ion.x_ci(1+Nmol:end,:);
+%     dy = data_ion.y_ci(1:Nmol,:) - data_ion.y_ci(1+Nmol:end,:);
+%     dz = data_ion.z_ci(1:Nmol,:) - data_ion.z_ci(1+Nmol:end,:);
+%     dR_mean = mean(sqrt(dx.^2+dy.^2+dz.^2), 1);
+%     
+%     tmax = min(max(tR), max(data_ion.time_i));
+%     mask_md = data_ion.time_i <= tmax;
+%     maskR   = tR <= tmax;
+%     
+%     t_md   = data_ion.time_i(mask_md).';
+%     d_md   = dR_mean(mask_md).';
+%     tR_use = tR(maskR).';
+%     R_use  = R(maskR).';
+%     
+%     dR_mean_on_tR = interp1(t_md, d_md, tR_use, 'linear');
+%     
+%     good  = isfinite(dR_mean_on_tR) & isfinite(R_use);
+%     rmse  = sqrt(mean((dR_mean_on_tR(good) - R_use(good)).^2));
+%     ratio = mean(dR_mean_on_tR(good) ./ R_use(good));
+%     
+%     fprintf('RMSE = %.3f Å, mean ratio = %.4f\n', rmse, ratio);
+% end
+
+
+%%
+
+
+disp('-----------------------')
+disp('Quantify the mismatch across the whole overlap interval')
+
+Nmol = size(data_ion.x_ci,1)/2;
+dx = data_ion.x_ci(1:Nmol,:) - data_ion.x_ci(1+Nmol:end,:);
+dy = data_ion.y_ci(1:Nmol,:) - data_ion.y_ci(1+Nmol:end,:);
+dz = data_ion.z_ci(1:Nmol,:) - data_ion.z_ci(1+Nmol:end,:);
+dR_mean = mean(sqrt(dx.^2+dy.^2+dz.^2), 1);
+
+tmax = min(max(tR), max(data_ion.time_i));
+mask_md = data_ion.time_i <= tmax;
+maskR   = tR <= tmax;
+
+t_md   = data_ion.time_i(mask_md).';
+d_md   = dR_mean(mask_md).';
+tR_use = tR(maskR).';
+R_use  = R(maskR).';
+
+dR_mean_on_tR = interp1(t_md, d_md, tR_use, 'linear');
+
+good  = isfinite(dR_mean_on_tR) & isfinite(R_use);
+rmse  = sqrt(mean((dR_mean_on_tR(good) - R_use(good)).^2));
+ratio = mean(dR_mean_on_tR(good) ./ R_use(good));
+
+fprintf('RMSE = %.3f Å, mean ratio = %.4f\n', rmse, ratio);
+
+
+
+%%
 figure
 
 
@@ -206,100 +276,100 @@ plot(res_Iplus_He.r*vf_single/100*mass_correction_factor, y / max(y ),  ':', 'co
 
 
 
-% plot simulation result for I+He and I+He2
-data_neutral = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\neutral_propagation_checkpoint.mat');
-data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
-
-
-
-for mass_select = 127+ 4*[1,2]
-b_mass_select = round(data_ion.mass_i(:,end)/u)==mass_select;
-
-
-fprintf('mass selection accounts for %.2f percent of total ions\n', 100*sum(b_mass_select)/numel(b_mass_select));
-b_select = b_mass_select & data_ion.b_ion_outside;
-
-
-vx_total = data_ion.vx_total(b_select, :);
-vy_total = data_ion.vy_total(b_select, :);
-vz_total = data_ion.vz_total(b_select, :);
-
-v_total_proj = sqrt(vx_total(:,1).^2 + vy_total(:,1).^2);
-v_total = sqrt(vx_total(:,1).^2 + vy_total(:,1).^2 + vz_total(:,1).^2);
-
-edges_velocity = [0:0.04:26];
-
-if abel_inv_post
-    plot_samples = v_total;
-else
-plot_samples = v_total_proj;
-end
-
-xinterval = [min(edges_velocity), max(edges_velocity)];
-[h, sigma_h, centers_velocity, ~, ~, ~] = bayes_hist(plot_samples, xinterval, true, 'r', edges_velocity);
-vd_ion = movmean(h,15);
-
-xlim([0,28]);
-
-ylim([0,1.1]);
-
-hold on
-
-
-vd_ion =vd_ion - min(vd_ion);
-
-if mass_select==131
-plot(centers_velocity, vd_ion/max(vd_ion), '--',  'color',colors(3,:));
-else
-    plot(centers_velocity, vd_ion/max(vd_ion), '-.',  'color',colors(4,:));
-end
-
-
-end
-
-
-
-%f1.Position(3:4) = figsize2.*[1,2];
-
-  leg = {'I_2:I^+','I_2He_N:I^+He',  'simulation I^+He',  'simulation I^+He_2'};
-  legend(leg);
-
-f1.Position = [    1.0306    0.3746    0.8216    0.5776]*1E3;
-
-add_letter_norm('a', 'topleft', 20, tile3)
-add_letter_norm('b', 'topleft', 20, tile4)
-
-
-
-
-
-if abel_inv_post
-exportgraphics(gcf, 'simulation_image_inv.pdf', 'ContentType', 'vector')
-else
-    exportgraphics(gcf, 'simulation_image.pdf', 'ContentType', 'vector')
-end
-
-
-
-if E_coulomb_scale <1
-f = figure
-
-newAx = copyobj( tile4, f);
-
-% Set the new axes as the current axes in the new figure
-set(f, 'CurrentAxes', newAx);
-
-% Optionally, adjust the position of the new axes
-newAx.OuterPosition = [0 0 1 1]; % Full figure size
-
-newAx.Children(1).String = '';
-f.Position(3:4) = figsize;
-
-set(newAx, 'fontsize', 15);
-
-legend(newAx, leg);
-
-  exportgraphics(gcf, 'simulation_image_Ec_80percent.pdf', 'ContentType', 'vector')
-end
+% % plot simulation result for I+He and I+He2
+% data_neutral = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\neutral_propagation_checkpoint.mat');
+% data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
+% 
+% 
+% 
+% for mass_select = 127+ 4*[1,2]
+% b_mass_select = round(data_ion.mass_i(:,end)/u)==mass_select;
+% 
+% 
+% fprintf('mass selection accounts for %.2f percent of total ions\n', 100*sum(b_mass_select)/numel(b_mass_select));
+% b_select = b_mass_select & data_ion.b_ion_outside;
+% 
+% 
+% vx_total = data_ion.vx_total(b_select, :);
+% vy_total = data_ion.vy_total(b_select, :);
+% vz_total = data_ion.vz_total(b_select, :);
+% 
+% v_total_proj = sqrt(vx_total(:,1).^2 + vy_total(:,1).^2);
+% v_total = sqrt(vx_total(:,1).^2 + vy_total(:,1).^2 + vz_total(:,1).^2);
+% 
+% edges_velocity = [0:0.04:26];
+% 
+% if abel_inv_post
+%     plot_samples = v_total;
+% else
+% plot_samples = v_total_proj;
+% end
+% 
+% xinterval = [min(edges_velocity), max(edges_velocity)];
+% [h, sigma_h, centers_velocity, ~, ~, ~] = bayes_hist(plot_samples, xinterval, true, 'r', edges_velocity);
+% vd_ion = movmean(h,15);
+% 
+% xlim([0,28]);
+% 
+% ylim([0,1.1]);
+% 
+% hold on
+% 
+% 
+% vd_ion =vd_ion - min(vd_ion);
+% 
+% if mass_select==131
+% plot(centers_velocity, vd_ion/max(vd_ion), '--',  'color',colors(3,:));
+% else
+%     plot(centers_velocity, vd_ion/max(vd_ion), '-.',  'color',colors(4,:));
+% end
+% 
+% 
+% end
+% 
+% 
+% 
+% %f1.Position(3:4) = figsize2.*[1,2];
+% 
+%   leg = {'I_2:I^+','I_2He_N:I^+He',  'simulation I^+He',  'simulation I^+He_2'};
+%   legend(leg);
+% 
+% f1.Position = [    1.0306    0.3746    0.8216    0.5776]*1E3;
+% 
+% add_letter_norm('a', 'topleft', 20, tile3)
+% add_letter_norm('b', 'topleft', 20, tile4)
+% 
+% 
+% 
+% 
+% 
+% if abel_inv_post
+% exportgraphics(gcf, 'simulation_image_inv.pdf', 'ContentType', 'vector')
+% else
+%     exportgraphics(gcf, 'simulation_image.pdf', 'ContentType', 'vector')
+% end
+% 
+% 
+% 
+% if E_coulomb_scale <1
+% f = figure
+% 
+% newAx = copyobj( tile4, f);
+% 
+% % Set the new axes as the current axes in the new figure
+% set(f, 'CurrentAxes', newAx);
+% 
+% % Optionally, adjust the position of the new axes
+% newAx.OuterPosition = [0 0 1 1]; % Full figure size
+% 
+% newAx.Children(1).String = '';
+% f.Position(3:4) = figsize;
+% 
+% set(newAx, 'fontsize', 15);
+% 
+% legend(newAx, leg);
+% 
+%   exportgraphics(gcf, 'simulation_image_Ec_80percent.pdf', 'ContentType', 'vector')
+% end
 
 

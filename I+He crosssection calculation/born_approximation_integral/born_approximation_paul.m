@@ -43,16 +43,16 @@ VLR = @(R) -D4*R.^(-4) - D6*R.^(-6) - D8*R.^(-8) ;
 sw = @(R) 1/2*(1+ tanh(1 + delta*R));
 
 %% plot components of the potential
-%  figure
-%  plot(x, (VLR(x).*sw(x) + VSR(x)));
-%  hold on
-%  plot(x, VSR(x));
-%  plot(x, VLR(x));  
-%  plot(x, VLR(x)*1 + VSR(x), ':');
-% xlabel(['R / ', char(0197)]);
-% ylabel('E / eV');
-% 
-% legend('full version', 'short range part', 'long range part', 'full version, switch omitted');
+ figure
+ plot(x, (VLR(x).*sw(x) + VSR(x)));
+ hold on
+ plot(x, VSR(x));
+ plot(x, VLR(x));  
+ plot(x, VLR(x)*1 + VSR(x), ':');
+xlabel(['R / ', char(0197)]);
+ylabel('E / eV');
+
+legend('full version', 'short range part', 'long range part', 'full version, switch omitted');
 
 % define the I+He potential, the switch function can be omitted because it
 % does nothing
@@ -72,14 +72,15 @@ V = @(R) V_original(R) .*softstep(R, R_switch) + V_original(R_switch)* (1-softst
 %% plot the potentials (modified and original)
 figure
 x = 0.01:0.01:25;
-plot(x, V(x)*1000);
+plot(x, V(x));
 hold on
-plot(x, V_original(x)*1000)
+plot(x, V_original(x))
 ylim([min(V(x)), max(V(x))])
 %ylim([0, 1e6])
 
 
 %% Lennard-Jones Regularized Potentials 
+close all
 % Parameters
 eps = .01784;            % Depth of the potential well
 sig = 3.25/2^(1/6);              % Characteristic length scale
@@ -100,6 +101,7 @@ V_soft = @(b, r) 4 * b(1) * ( ((b(2)^2 + b(3)^2) ./ (r.^2 + b(3)^2)).^6 - ((b(2)
 damping = 1 - exp( - (r ./ rc).^n );
 V_exp = @(b,r) V_LJ([b(1), b(2)], r) .* (1 - exp( - (r ./ b(3)).^b(4) ));
 
+figure
 plot(x, V_LJ([eps, sig], x)*1000);
 plot(x, V_soft([eps, sig, regpar], x)*1000);
 plot(x, V_exp([eps, sig, rc, n], x)*1000);

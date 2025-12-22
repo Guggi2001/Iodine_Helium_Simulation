@@ -1,4 +1,4 @@
-addpath 'T:\github synchronized\I2HeN_velocity_simulation'
+addpath 'T:\github synchronized\Iodine_Helium_Simulation'
 % if running without prior simulation, do this:
 %run inputfiles_dft_comparison\single_pulse_droplet_distribution.m 
 
@@ -16,7 +16,7 @@ switch R0_GS
 
 
     case 18
-        addpath('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\HeDFT_comparison\18Angström');
+        addpath('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\HeDFT_comparison\18Angström');
         
         R1 = importfile_marti('T:\Cloud\MATLAB iodine\MartiPiNotes\impurities_dynamics\impurities_dynamics\rimp.I_1');
         R2 = importfile_marti('T:\Cloud\MATLAB iodine\MartiPiNotes\impurities_dynamics\impurities_dynamics\rimp.I_2');
@@ -31,11 +31,11 @@ switch R0_GS
         v = sqrt(sum(V2.vec.^2,2));
 
     otherwise
-                addpath('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\HeDFT_comparison\9Angström\')
-        [t, v] = importfile_v2('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\HeDFT_comparison\9Angström\data_vabs2.csv');
+                addpath('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\HeDFT_comparison\9Angström\')
+        [t, v] = importfile_v2('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\HeDFT_comparison\9Angström\data_vabs2.csv');
         v = abs(v);
         
-        [tR, R] = importfile_R1_R2('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\HeDFT_comparison\9Angström\R1-R2.csv');
+        [tR, R] = importfile_R1_R2('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\HeDFT_comparison\9Angström\R1-R2.csv');
 
 end
 
@@ -43,12 +43,12 @@ end
 close all
 global single_pulse
 if single_pulse
-  data_neutral = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\neutral_propagation_checkpoint');
+  data_neutral = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\neutral_propagation_checkpoint');
  %  [vx_total, vy_total, vz_total] = add_cei_vel_to_vel_3d(x_components, y_components,z_components,  vx_components, vy_components , vz_components, mass);
 
 
 
-data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint_hedft.mat');
+data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint_hedft.mat');
 end
 
 figure
@@ -205,8 +205,8 @@ plot(res_Iplus_He.r*vf_single/100*mass_correction_factor, y / max(y ),  ':', 'co
 
 
 % plot simulation result for I+He and I+He2
-data_neutral = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\neutral_propagation_checkpoint.mat');
-data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
+data_neutral = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\neutral_propagation_checkpoint.mat');
+data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
 
 
 

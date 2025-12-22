@@ -63,7 +63,7 @@ for i = 1:length(v_array)
         % ==> trapz for the radial integral is not good enough
 
         % better: use integral method which takes a function as the argument
-        integrand = @(z) (z*1E-10).*sin((z*1E-10).*K).*V(z)*eV; % complement C_Viii, equation (4)
+        integrand = @(z) (z*1E-10).*sin((z*1E-10).*K).*V(z)*eV*1E-10; % complement C_Viii, equation (4)
         f = integral(integrand, rmin, rmax, 'AbsTol',0.00000001)*prefactor;
 
 

@@ -5,8 +5,9 @@ seed = 123;
 global custom_DFT_start 
 
 
-load('T:\github synchronized\I2HeN_velocity_simulation\I+He crosssection calculation\crosssection_v_dependence.mat'); % load sigma_lookup function
 
+% Recreate the handle (use a robust form; exp(-2*log(v)) == v.^(-2) for v>0)
+sigma_lookup = @(v) v.^(-2);
 global DEBUG
 
 run physical_constants.m
@@ -402,7 +403,7 @@ end
 
 %warning('start time at 0.9 ps!')
 
-dft_fit = load('T:\github synchronized\I2HeN_velocity_simulation\HeDFT_MD_comparison_neutral\custom_start_interpolating_functions.mat');
+dft_fit = load('T:\github synchronized\Iodine_Helium_Simulation\HeDFT_MD_comparison_neutral\custom_start_interpolating_functions.mat');
 
 % mimic the dynamics of TD-HeDFT
 tau_id = 1;
@@ -970,7 +971,7 @@ plot(sum(E_system,1));
 legend('E_{kin}', 'E_{pot}', 'E_{dissip}', 'E_{system}');
 title('Energy balance neutral atoms');
 
-savefig(gcf, 'T:\github synchronized\I2HeN_velocity_simulation\debug_images\neutral_energy');
+savefig(gcf, 'T:\github synchronized\Iodine_Helium_Simulation\debug_images\neutral_energy');
 
 
 

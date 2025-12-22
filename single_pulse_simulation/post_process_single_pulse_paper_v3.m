@@ -223,19 +223,19 @@ end
 
 
 %% plot
-% load('T:\github synchronized\I2HeN_velocity_simulation\\neutral_propagation_checkpoint.mat');
-% load('T:\github synchronized\I2HeN_velocity_simulation\ion_propagation_checkpoint.mat');
+% load('T:\github synchronized\Iodine_Helium_Simulation\\neutral_propagation_checkpoint.mat');
+% load('T:\github synchronized\Iodine_Helium_Simulation\ion_propagation_checkpoint.mat');
 
-data_neutral = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\neutral_propagation_checkpoint.mat');
+data_neutral = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\neutral_propagation_checkpoint.mat');
 
 if effusive_dynamics
-data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint_gas.mat');
+data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint_gas.mat');
 else
-%data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
+%data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
 if single_initial_position
-    data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint_hedft.mat');
+    data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint_hedft.mat');
 else
-    data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
+    data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
 end
 end
 

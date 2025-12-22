@@ -4,8 +4,9 @@ global effusive_dynamics
 
 load('neutral_propagation_checkpoint');
 clear beta
-%load('T:\github synchronized\I2HeN_velocity_simulation\I+He crosssection calculation\crosssection_v_dependence.mat'); % load sigma_lookup function
-
+%load('T:\github synchronized\Iodine_Helium_Simulation\I+He crosssection calculation\crosssection_v_dependence.mat'); % load sigma_lookup function
+% Recreate the handle (use a robust form; exp(-2*log(v)) == v.^(-2) for v>0)
+sigma_lookup = @(v) v.^(-2);
 %bulk_density_helium = 0.0219; % Angström ^-3
 %density_droplet = 0.8*bulk_density_helium;
 
@@ -519,8 +520,13 @@ for start_id = 1:last_id
             % than head on collisions)
 
             COSTHETA = (2*impact_parameter_norm.^2 - 1) ; % costheta seems to be evenly distributed again
+            % Ensure COSTHETA is physically admissible
+            COSTHETA = max(-1, min(1, COSTHETA));
             SINTHETA = sqrt(1- COSTHETA.^2);
-
+            % Robust denominator
+            arg = 1 + 2*RHO.*COSTHETA + RHO.^2;
+            arg = max(arg, 0);                      % protects against tiny negative roundoff
+            den = sqrt(arg);
 
             COSTHETA(~b_collision ) = 1;
             SINTHETA(~b_collision ) = 0;
@@ -536,13 +542,14 @@ for start_id = 1:last_id
 
             % THETA is the angle in the center of mass frame
             % ==> transform to laboratory frame
-            COStheta = (COSTHETA+ RHO)./sqrt(1 + 2*RHO.*COSTHETA+ RHO.^2);
-
-            if sum(COStheta>1)>0
-                COStheta(COStheta>1) = 1;
-                warning('COStheta larger than 1!');
-
-            end
+            COStheta = (COSTHETA+ RHO)./den;
+            % Clamp final cosine
+            COStheta = max(-1, min(1, COStheta));
+%             if sum(COStheta>1)>0
+%                 COStheta(COStheta>1) = 1;
+%                 warning('COStheta larger than 1!');
+% 
+%             end
 
             SINtheta= sqrt(1- COStheta.^2);
             % COStheta = COSTHETA;
@@ -901,12 +908,12 @@ legend({'E_{kin}', 'E_{pot}', 'E_{dissip}', 'E_{mass attach}', 'E_{system}'});
 ylabel('energy per molecule/ eV');
 xlabel('t / ps');
 title('energy balance ions');
-savefig(gcf, 'T:\github synchronized\I2HeN_velocity_simulation\debug_images\ion_energy');
+savefig(gcf, 'T:\github synchronized\Iodine_Helium_Simulation\debug_images\ion_energy');
 
 
 test = 1;
 if single_pulse
-    cd('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation');
+    cd('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation');
 end
 
 if effusive_dynamics

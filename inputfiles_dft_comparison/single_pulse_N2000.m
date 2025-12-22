@@ -66,14 +66,15 @@ scatter_mass_ion = 4;
 
 global geometric_scattering_crosssection_Iplus;
 %geometric_scattering_crosssection_Iplus = 10; %Angström^2; current best
-geometric_scattering_crosssection_Iplus = 22; %Angström^2;
-
-geometric_scattering_crosssection_Iplus = 100; %Angström^2; % for sigma = v^-1
+%geometric_scattering_crosssection_Iplus = 22; %Angström^2;
+%geometric_scattering_crosssection_Iplus = 100; %Angström^2; % for sigma = v^-1
 geometric_scattering_crosssection_Iplus = 2500; %Angström^2; % for sigme = v^-2
+
 
 global binding_energy_I_ion
 binding_energy_I_ion = 0.3; % v^-2
-binding_energy_I_ion = 0.01;
+%binding_energy_I_ion = 0.01;
+
 
 
 global neutral_scatter_angle_std
@@ -84,10 +85,9 @@ ion_scatter_angle_std = 0;
 %ion_scatter_angle_std = 1;
 
 global mass_attach_probability % probability to attach a helium atom to an ion at each hard sphere collision
-mass_attach_probability = 0.05;
-%mass_attach_probability = 0.09;
-
-mass_attach_probability = 0.005;
+%mass_attach_probability = 0.05;
+mass_attach_probability = 0.09;
+%mass_attach_probability = 0.005;
 
 global single_charge_ionization_allowed
 single_charge_ionization_allowed = false;
