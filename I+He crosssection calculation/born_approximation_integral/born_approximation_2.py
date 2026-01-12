@@ -1,208 +1,114 @@
-"""
-I+–He velocity-dependent differential & total cross section
-MATLAB -> Python translation (SciPy/NumPy)
-
-Notes:
-- Distances R, r are in Angström unless explicitly converted.
-- Energies from the Buchachenko et al. parametrization are in cm^-1 and
-  converted to eV via eV_per_wavenumber.
-- For the scattering integral, potential is converted from eV -> J.
-"""
-
-from __future__ import annotations
-
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import constants
-from scipy.special import erf
 from scipy.integrate import quad
-from scipy.optimize import curve_fit
-import physical_constants as pc
 
 # -----------------------------
-# Physical constants (SI)
+# 1. Constants & Setup
 # -----------------------------
-hbar_SI = 1.05457182e-34  # J*s
-e_charge = 1.602176634e-19  # C
-epsilon_0 = 8.8541878128e-12  # F/m
-eV_J = 1.602176634e-19  # J per eV
-u = 1.66053906660e-27  # atomic mass unit (kg)
-k_B = 1.380649E-23 # J / K
-angstrom = 1e-10  # m
-hc = 1240 # eV nm
-eV_per_wavenumber = 1/8065.54429
+hbar_SI = 1.05457182e-34
+eV_J = 1.602176634e-19
+u = 1.66053906660e-27
+angstrom = 1e-10
 
-# hard sphere collision parameters
-#  mean free path method
-bulk_density_helium = 0.0219 # Angström ^-3
-density_droplet = 0.8*bulk_density_helium
-# https://journals.aps.org/prb/pdf/10.1103/PhysRevB.58.3341
+# Masses (I+ and He)
+m1, m2 = 127.0, 4.0
+mu = (m1 * m2 / (m1 + m2)) * u
 
+# Soft-Core LJ Parameters
+eps = 0.01784  # eV
+sig = 3.25  # Angstrom
 
-# -----------------------------
-# Masses (amu)
-# -----------------------------
-m1 = 127.0  # iodine (amu) in your code
-m2 = 4.0    # helium (amu)
-mu_amu = m1 * m2 / (m1 + m2)  # reduced mass (amu)
-mu = mu_amu * u               # reduced mass in kg
+# CHANGE: Weaker core for validation to stay in Born regime
+# a = 3.0 makes V(0) approx equal to epsilon (weak scattering)
+softening_a = 3.0
 
 
-# -----------------------------
-# Lennard-Jones regularizations (r in Å)
-# -----------------------------
-eps = 0.01784
-sig = 3.25 / (2.0 ** (1.0 / 6.0))
-regpar = 0.05 * sig
-rc = 0.05 * sig
-n_damp = 8
-
-import numpy as np
-
-R_EPS = 1e-12  # Å, purely numerical guard
-
-def _asarray_r(r_ang):
-    r = np.asarray(r_ang, dtype=float)
-    return np.maximum(r, R_EPS)
-
-def V_LJ(eps_, sig_, r_ang):
-    r = _asarray_r(r_ang)
-    return 4.0 * eps_ * ((sig_ / r)**12 - (sig_ / r)**6)
-
-def V_exp(eps_, sig_, rc_, n_, r_ang):
-    """
-    Exponential cutoff / damping:
-      V_LJ * (1 - exp(-(r/rc)^n))
-    Matches your MATLAB intent.
-    """
-    r = _asarray_r(r_ang)
-    return V_LJ(eps_, sig_, r) * (1.0 - np.exp(- (r / rc_)**n_))
-
-
-def V_soft(eps_: float, sig_: float, a: float, r_ang: np.ndarray | float) -> np.ndarray | float:
-    """
-    Soft-core regularization (kept from your MATLAB).
-    """
-    r = np.asarray(r_ang, dtype=float)
-    num = (sig_**2 + a**2)
-    den = (r**2 + a**2)
-    return 4.0 * eps_ * ((num / den)**6 - (num / den)**3)
-
-# -----------------------------
-# Scattering integral setup
-# -----------------------------
-def scattering_amplitude_f(theta, v, potential_func, mu, hbar,
-                           rmin_ang=0.0, rmax_ang=200.0, abstol=1e-8):
-    k0 = (mu * v) / hbar
-    K = 2.0 * k0 * np.sin(theta / 2.0)
-
-    prefactor = -2.0 * mu / (hbar**2 * K)
-
-    def integrand(z_ang):
-        z_m = z_ang * angstrom
-        return z_m * np.sin(K * z_m) * potential_func(z_ang) * eV_J
-
-    val, _ = quad(integrand, rmin_ang, rmax_ang, epsabs=abstol, limit=500)
-
-    return prefactor * val
-
-
-
-def compute_sigma(v_array: np.ndarray,
-                  theta_array: np.ndarray,
-                  potential_func,
-                  mu: float,
-                  hbar: float,
-                  rmax_ang: float = 300.0) -> np.ndarray:
-    """
-    sigma(v,theta) = |f|^2 on a grid.
-    """
-    sigma = np.zeros((len(v_array), len(theta_array)), dtype=float)
-
-    total = sigma.size
-    counter = 0
-
-    for i, v in enumerate(v_array):
-        for j, theta in enumerate(theta_array):
-            f = scattering_amplitude_f(theta, v, potential_func,
-                                       mu=mu, hbar=hbar,
-                                       rmax_ang=rmax_ang)
-            sigma[i, j] = np.abs(f)**2
-
-            counter += 1
-            if counter % int(np.ceil(total / 20)) == 0:
-                pct = 100.0 * counter / total
-                print(f"calculation progress: {pct:.0f} percent")
-
-    sigma[~np.isfinite(sigma)] = 0.0
-    return sigma
-
+def V_soft_LJ_eV_part(r_ang):
+    """V(r) without the singularity."""
+    r_sq = r_ang ** 2
+    x_sq = r_sq + softening_a ** 2
+    term6 = (sig ** 2 / x_sq) ** 3
+    term12 = term6 ** 2
+    return 4.0 * eps * (term12 - term6)
 
 
 # -----------------------------
-# Main run (mirrors your MATLAB choices)
+# 2. Split-Domain Integrator
 # -----------------------------
-def main() -> None:
-    # Plot potentials (modified and original)
-    x = np.arange(0.01, 25.0 + 1e-12, 0.01)
+def get_sigma_mt_split(v, rmax):
+    k0 = (mu * v) / hbar_SI
 
-    # LJ regularization plots (matching your intention)
-    plt.figure()
-    plt.plot(x, V_LJ(eps, sig, x), label="Lennard-Jones")
-    # plt.plot(x, V_soft(eps, sig, regpar, x) * 1000.0, label="soft-core")
-    # plt.plot(x, V_exp(eps, sig, rc, n_damp, x) * 1000.0, label="exp cutoff")
-    plt.xlim(0.0, 5.0)
-    plt.ylim(-20.0, 100.0)
-    plt.xlabel("r / Å")
-    plt.ylabel("E / meV")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    # We define a "Core Cutoff" where the potential is non-zero
+    r_core_edge = 20.0  # Angstroms
 
-    # Cross section grid
-    v_array = np.arange(10.0, 2200.0 + 1e-12, 100.0)
-    theta_array = np.linspace(-np.pi, np.pi, 100)
-    theta_array = theta_array[np.abs(theta_array) > 1e-3]
+    # Angular grid
+    theta_array = np.linspace(0.01, np.pi, 100)
+    d_sigmas = []
 
-    # Choose potential for scattering integral (your MATLAB uses V_exp in the integral)
-    potential = lambda r_ang: V_exp(eps, sig, rc, n_damp, r_ang)
+    for theta in theta_array:
+        K = 2.0 * k0 * np.sin(theta / 2.0)
+        prefactor = -2.0 * mu / (hbar_SI ** 2 * K)
 
-    sigma = compute_sigma(v_array, theta_array, potential_func=potential, mu=mu, hbar=hbar_SI, rmax_ang=1e12)
+        # Integrand Function (r * V)
+        def integrand_core(z_ang):
+            z_m = z_ang * angstrom
+            V_J = V_soft_LJ_eV_part(z_ang) * eV_J
+            return z_m * V_J * angstrom
 
-    # Total cross section by integrating over angles
-    sigma_total = np.trapezoid(sigma, theta_array, axis=1)
+        # --- PART 1: The Core (0 to 20 A) ---
+        # Standard quad is fine here, range is small
+        wvar_val = K * angstrom
 
-    # Fit power law in log space: log(sigma) = a + b log(v)
-    # (same structure as your MATLAB nlinfit block)
-    def log_fit_func(logv, a, b):
-        return a + b * logv
+        # Calculate Core contribution
+        # Note: We use 'weight=sin' even here to be consistent
+        val_core, _ = quad(integrand_core, 0.0, min(rmax, r_core_edge),
+                           weight='sin', wvar=wvar_val, limit=500)
 
-    # Avoid zeros in log
-    mask = np.isfinite(sigma_total) & (sigma_total > 0)
-    print("sigma_total finite:", np.isfinite(sigma_total).sum(), "/", sigma_total.size)
-    print("sigma_total > 0:", (sigma_total > 0).sum(), "/", sigma_total.size)
-    print("sigma_total min/max:", np.nanmin(sigma_total), np.nanmax(sigma_total))
-    print("fit points:", mask.sum())
+        # --- PART 2: The Tail (20 A to rmax) ---
+        val_tail = 0.0
+        if rmax > r_core_edge:
+            val_tail, _ = quad(integrand_core, r_core_edge, rmax,
+                               weight='sin', wvar=wvar_val, limit=5000)
 
-    if mask.sum() < 3:
-        print("Not enough valid points for a 2-parameter fit. Skipping fit.")
-    else:
-        popt, _ = curve_fit(log_fit_func, np.log(v_array[mask]), np.log(sigma_total[mask]), p0=(np.log(np.max(sigma_total[mask])), -1.0))
-        a_fit, b_fit = popt
+        f = prefactor * (val_core + val_tail)
+        d_sigmas.append(np.abs(f) ** 2)
 
-    plt.figure()
-    plt.plot(v_array, sigma_total, label="sigma_total")
-    if mask.sum() > 3:
-        plt.plot(v_array, np.exp(log_fit_func(np.log(v_array), a_fit, b_fit)),
-                 label=f"fit: σ ≈ {np.exp(a_fit):.2e} · v^{b_fit:.2f}")
-    plt.yscale("log")
-    plt.xlabel("v / m/s")
-    plt.ylabel("σ / m$^2$")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    d_sigmas = np.array(d_sigmas)
+    weight_mt = (1 - np.cos(theta_array)) * np.sin(theta_array)
+    sigma_mt = 2 * np.pi * np.trapz(d_sigmas * weight_mt, theta_array)
+
+    return sigma_mt
 
 
-
+# -----------------------------
+# 3. Execution
+# -----------------------------
 if __name__ == "__main__":
-    main()
+    v_test = 500.0
+    print(f"--- Final Convergence Test (Split Integration) ---")
+
+    # Note: We include np.inf
+    rmax_list = [50, 100, 200, 500, 1000, 5000, np.inf]
+    results = []
+
+    for r_mx in rmax_list:
+        s = get_sigma_mt_split(v_test, r_mx)
+        results.append(s)
+        label = "Inf" if np.isinf(r_mx) else f"{r_mx}"
+        print(f"  rmax={label:5s} -> sigma_mt={s:.4e} m^2")
+
+    # Plot
+    valid_x = [x for x in rmax_list if not np.isinf(x)]
+    valid_y = results[:-1]
+
+    plt.figure(figsize=(8, 6))
+    plt.plot(valid_x, valid_y, 'o-', linewidth=2, label='Finite Integration')
+    plt.axhline(results[-1], color='r', linestyle='--', label=f'Infinite Limit ({results[-1]:.2e})')
+
+    plt.title(f"Convergence with Split Integration\n(Softening a={softening_a} $\AA$)")
+    plt.xlabel("Integration Cutoff $r_{max}$ (Å)")
+    plt.ylabel("$\sigma_{MT}$ ($m^2$)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()

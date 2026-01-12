@@ -43,7 +43,7 @@ mu = mu_amu * u               # reduced mass in kg
 # Yukawa potential for testing
 # -----------------------------
 alpha = 1.0   # 1/Å
-V0 = 20.0     # eV
+V0 = 20.0     # eV*Å
 
 def V_yukawa_eV(r_ang: np.ndarray | float) -> np.ndarray | float:
     """Yukawa potential V(r) in eV, with r in Å."""
@@ -68,7 +68,7 @@ plt.tight_layout()
 # Direct integral (Born approximation)
 # -----------------------------
 rmin_ang = 0.0
-rmax_ang = 50.0
+rmax_ang = 100.0
 
 v_array = np.arange(1.0, 2200.0 + 1e-12, 100.0)
 theta_array = np.linspace(-np.pi, np.pi, 100)

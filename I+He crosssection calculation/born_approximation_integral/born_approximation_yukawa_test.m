@@ -14,8 +14,8 @@ mu = m1*m2/(m1+m2); %reduced mass
 
 %% define yukawa potential for testing
 alpha = 1; %  range parameter in 1/Angström
-V0 = 20; % scale of potential in eV
-
+V0 = 20; % scale of potential in eV*Angström
+V0_SI = V0*eV*1e-10
 % function definition
 V = @(x) V0*exp(-alpha*x)./x;
 
@@ -30,7 +30,7 @@ xlabel('r / Angström'); ylabel('E / meV');
 %% direct integral from book
 % Quantum Mechanics, Volume 2 Angular Momentum, Spin, and Approximation Methods
 
-rmin = 0; rmax = 50;
+rmin = 0; rmax = 100;
 
 % arrays for the sigma calculation
 v_array = (1:100:2200);
@@ -125,7 +125,7 @@ k = (mu*u)*v_array/hbar_SI; % need to redefine the k vector here
 % calculate all sigma(v, theta) values at once, ensuring that sigma_yukawa
 % has the same dimensions as the numerical sigma matrix (for plotting and
 % comparing them later on)
-sigma_yukawa =  4*(mu*u)^2*(V0*eV)^2/hbar_SI^4     *    1./       (    (alpha*1E10)^2   +      4*(k.^2)' .* sin(theta_array/2).^2      ).^2;
+sigma_yukawa =  4*(mu*u)^2*(V0_SI)^2/hbar_SI^4     *    1./       (    (alpha*1E10)^2   +      4*(k.^2)' .* sin(theta_array/2).^2      ).^2;
 % note that the alpha value has to be multipled by 1E10 to ensure it has SI
 % units of 1/m instead of 1/Angström
 
