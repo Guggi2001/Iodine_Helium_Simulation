@@ -56,9 +56,9 @@ global E_diss; E_diss = 1.556*eV;
 %% single pulse inputs (as used in thesis)
 
 % He DFT comparison inputfiles
-%run inputfiles_dft_comparison\single_pulse_N2000.m  
+run inputfiles_dft_comparison\single_pulse_N2000.m  
 
-run inputfiles_dft_comparison\single_pulse_droplet_distribution.m 
+%run inputfiles_dft_comparison\single_pulse_droplet_distribution.m 
 
 
 %run inputfiles_dft_comparison\single_pulse_gas_distribution.m
