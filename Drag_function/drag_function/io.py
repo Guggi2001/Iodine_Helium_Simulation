@@ -63,8 +63,8 @@ def load_data_18(folder_path):
     return data_dict
 
 # --- Testing if data loaded correctly ---
-test = False
-if test == True:
+test = True
+if test:
     from config_utils_local import config as C
     import matplotlib.pyplot as plt
     # Load 9A data
