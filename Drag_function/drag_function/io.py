@@ -11,20 +11,24 @@ def load_data(file_path):
     Returns:
         dict: A dictionary containing time, velocities, and reconstructed distance arrays.
     """
-    data = None
+    data_dict = None
     if not os.path.exists(file_path):
-        print(f"Warning: File not found at {file_path}")
-        return data
-    try:
-        data = pd.read_csv(file_path)
-    except Exception as e:
-        print(f"Error loading 9A data: {e}")
-    data_dict = {
-        't':   data['Time_ps'].values,
-        'v1': data['V1_mag'].values,
-        'v2': data['V2_mag'].values,
-        'R':   data['R_distance'].values
-    } if data is not None else None
+        print(f"[!] PATH ERROR: Cannot find file at {file_path}")
+    else:
+        try:
+            data = pd.read_csv(file_path)
+            data_dict = {
+                't': data['Time_ps'].values,
+                'v1': data['V1_mag'].values,
+                'v2': data['V2_mag'].values,
+                'v1_z': data['V1_z'].values,
+                'v2_z': data['V2_z'].values,
+                'v1_x': data['V1_x'].values,
+                'v2_x': data['V2_x'].values,
+                'R': data['R_distance'].values
+            }
+        except Exception as e:
+            print(f"[!] READ ERROR: Could not parse {file_path}. Details: {e}")
     return data_dict
 
 
@@ -63,30 +67,30 @@ def load_data_18(folder_path):
     return data_dict
 
 # --- Testing if data loaded correctly ---
-test = True
+test = False
 if test:
     from config_utils_local import config as C
     import matplotlib.pyplot as plt
-    # Load 9A data
-    dict9 = load_data(C.PATH9A)
 
-    fig9, axs = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
+    # --- 9A Case ---
+    bubble_exit_9_top = 9.0
+    bubble_exit_9_bottom = 7.5
+    dict9 = load_data(C.PATH9A)
+    fig9, axs = plt.subplots(2, 2, figsize=(7, 4), constrained_layout=True)
     fig9.suptitle('HeDFT Reference Results: 9Å', fontsize=16, fontweight='bold')
 
     # Velocity Iodine 1
     axs[0, 0].plot(dict9['t'], dict9['v1'], color='#0072BD', lw=1.5)
-    axs[0, 0].set_title('Velocity: Iodine 1 (9Å)')
+    axs[0, 0].set_title('Velocity: Bottom Iodine (9Å)')
     axs[0, 0].set_ylabel('v / Å/ps')
-    axs[0, 0].set_xlim(-2, 12)
-    axs[0, 0].grid(True, alpha=0.3)
+    axs[0, 0].axvline(x=bubble_exit_9_bottom, color='red', linestyle='--', label='approximate bubble exit')
 
     # Velocity Iodine 2
     axs[0, 1].plot(dict9['t'], dict9['v2'], color='#D95319', lw=1.5)
-    axs[0, 1].set_title('Velocity: Iodine 2 (9Å)')
-    axs[0, 1].set_xlim(-2, 12)
-    axs[0, 1].grid(True, alpha=0.3)
+    axs[0, 1].set_title('Velocity: Top Iodine (9Å)')
+    axs[0, 1].axvline(x=bubble_exit_9_top, color='red', linestyle='--', label='approximate bubble exit')
 
-    # Internuclear Distance (spanning bottom)
+    # Cleanup & Bottom Plot
     gs = axs[1, 0].get_gridspec()
     for ax in axs[1, :]: ax.remove()
     ax_bottom = fig9.add_subplot(gs[1, :])
@@ -94,25 +98,30 @@ if test:
     ax_bottom.set_title('9Å Case: Distance Verification & Extension')
     ax_bottom.set_xlabel('t / ps')
     ax_bottom.set_ylabel('R / Å')
-    ax_bottom.set_xlim(0, 12)  # Matches your MATLAB screenshot zoom
-    ax_bottom.grid(True, alpha=0.3)
+    ax_bottom.set_xlim(0, 12)
 
+    for ax in fig9.axes: ax.grid(True, alpha=0.3)
+    axs[0, 1].legend()  # Shows label on one of the plots
     plt.show()
 
-    # Plotting 18A
+    # --- 18A Case ---
+    bubble_exit_18 = 8.5  # <--- Change this value later
     dict18 = load_data(C.PATH18A)
-
-    fig18, axs = plt.subplots(2, 2, figsize=(12, 8), constrained_layout=True)
+    fig18, axs = plt.subplots(2, 2, figsize=(7, 4), constrained_layout=True)
     fig18.suptitle('HeDFT Reference Results: 18Å', fontsize=16, fontweight='bold')
 
-
+    # Velocity Iodine 1
     axs[0, 0].plot(dict18['t'], dict18['v1'], color='#0072BD', lw=1.2)
-    axs[0, 0].set_title('Velocity: Iodine 1 (18Å)')
+    axs[0, 0].set_title('Velocity: Bottom Iodine (18Å)')
     axs[0, 0].set_ylabel('v / Å/ps')
+    axs[0, 0].axvline(x=bubble_exit_18, color='red', linestyle='--', label='approximate bubble exit')
 
+    # Velocity Iodine 2
     axs[0, 1].plot(dict18['t'][:len(dict18['v2'])], dict18['v2'], color='#D95319', lw=1.2)
-    axs[0, 1].set_title('Velocity: Iodine 2 (18Å)')
+    axs[0, 1].set_title('Velocity: Top Iodine (18Å)')
+    axs[0, 1].axvline(x=bubble_exit_18, color='red', linestyle='--', label='approximate bubble exit')
 
+    # Cleanup & Bottom Plot
     gs = axs[1, 0].get_gridspec()
     for ax in axs[1, :]: ax.remove()
     ax_bottom = fig18.add_subplot(gs[1, :])
@@ -122,5 +131,5 @@ if test:
     ax_bottom.set_ylabel('R / Å')
 
     for ax in fig18.axes: ax.grid(True, alpha=0.3)
-
+    axs[0, 1].legend()
     plt.show()
