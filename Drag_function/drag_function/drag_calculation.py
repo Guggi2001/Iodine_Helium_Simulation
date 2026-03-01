@@ -629,5 +629,6 @@ def smooth_range_only(t, v, t_start, t_end, window_length, polyorder=3, enable_p
 
     return v_full_smoothed
 
-v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], t_start=2.67, t_end=8.2, window_length=3501, polyorder=3, enable_plot=True)
+v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], t_start=2.67, t_end=8.2, window_length=4501, polyorder=3, enable_plot=True)
 v_part_smoothed = smooth_range_only(dict18["t"], dict18["v2"], t_start=4.50, t_end=8.0, window_length=2501, polyorder=3, enable_plot=True)
+

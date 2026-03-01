@@ -151,11 +151,27 @@ def find_t_star_stationary_residual(
 
     return t_star, diagnostics
 
-t = dict18["t"]
-v1 = dict18["v2"]
+t18 = dict18["t"]
+v18 = dict18["v2"]
 
-t_star, diag = find_t_star_stationary_residual(
-    t, v1,
+t_star18, diag18 = find_t_star_stationary_residual(
+    t18, v18,
+    t_out=9.0,
+    trend_win_ps=0.8,
+    rms_win_ps=0.5,
+    late_window=(5, 8.5),
+    k=2.5,
+    sustain_ps=0.8,
+    show=True
+)
+
+print("t*18 =", t_star18)
+print(diag18)
+
+t9 = dict9["t"]
+v9 = dict9["v2"]
+t_star9, diag9 = find_t_star_stationary_residual(
+    t9, v9,
     t_out=9.0,
     trend_win_ps=0.8,
     rms_win_ps=0.5,
@@ -165,5 +181,5 @@ t_star, diag = find_t_star_stationary_residual(
     show=True
 )
 
-print("t* =", t_star)
-print(diag)
+print("t*9 =", t_star9)
+print(diag9)
