@@ -369,105 +369,68 @@ def dominant_periods_fft(t, y, t_min=None, t_max=None, detrend='linear', n_peaks
 
     return peaks, freqs_b, power_b
 
-import numpy as np
-from scipy.signal import find_peaks
+
+from scipy.signal import detrend as scipy_detrend, find_peaks
+
 
 def dominant_periods_fft(
-    t, y,
-    t_min=None, t_max=None,
-    detrend='linear',
-    n_peaks=3,
-    fmin=0.05,
-    fmax=None,
-    # new peak-finding controls:
-    peak_min_prominence_ratio=0.05,  # relative to max(power_b)
-    peak_min_distance_hz=0.05,       # min separation in 1/ps (frequency units)
+        t, y, t_min=None, t_max=None, detrend='linear',
+        n_peaks=3, fmin=0.05, fmax=None,
+        peak_min_prominence_ratio=0.05, peak_min_distance_hz=0.05
 ):
-    """
-    Returns dominant periods (ps) from FFT power spectrum of y(t), using local maxima peak finding.
+    t, y = np.asarray(t, float), np.asarray(y, float)
 
-    Returns:
-      peaks : list of (freq[1/ps], period[ps], power)
-      freqs_b, power_b : arrays (already band-limited)
-    """
-    t = np.asarray(t, float)
-    y = np.asarray(y, float)
-
-    # Time window
+    # 1. Time window
     mask = np.ones_like(t, dtype=bool)
-    if t_min is not None:
-        mask &= (t >= t_min)
-    if t_max is not None:
-        mask &= (t <= t_max)
+    if t_min is not None: mask &= (t >= t_min)
 
-    tt = t[mask]
-    yy = y[mask]
+    if t_max is not None: mask &= (t <= t_max)
+    tt, yy = t[mask], y[mask]
 
-    # Uniform dt check
+    # 2. Uniform spacing check
     dt = np.mean(np.diff(tt))
     if not np.allclose(np.diff(tt), dt, rtol=1e-3, atol=1e-12):
-        raise ValueError("t is not uniformly spaced enough for FFT peak detection.")
+        raise ValueError("t is not uniformly spaced enough for FFT.")
 
-    # Detrend
+    # 3. Detrending
     if detrend == 'mean':
         yy = yy - np.mean(yy)
     elif detrend == 'linear':
-        A = np.vstack([tt, np.ones_like(tt)]).T
-        m, c = np.linalg.lstsq(A, yy, rcond=None)[0]
-        yy = yy - (m*tt + c)
-    elif detrend == 'none':
-        pass
-    else:
+        yy = scipy_detrend(yy, type='linear')
+    elif detrend != 'none':
         raise ValueError("detrend must be 'none', 'mean', or 'linear'.")
 
-    # Window to reduce leakage
-    w = np.hanning(len(yy))
-    yyw = yy * w
-
-    # One-sided FFT
+    # 4. Windowing and FFT
+    yyw = yy * np.hanning(len(yy))
     Y = np.fft.rfft(yyw)
-    freqs = np.fft.rfftfreq(len(yyw), d=dt)  # 1/ps
-    power = (np.abs(Y)**2)
+    freqs = np.fft.rfftfreq(len(yyw), d=dt)
+    power = np.abs(Y) ** 2
 
-    # Frequency limits
-    nyq = 0.5 / dt
-    if fmax is None:
-        fmax = nyq
+    # 5. Frequency band filtering
+    fmax = fmax if fmax is not None else (0.5 / dt)
     band = (freqs >= fmin) & (freqs <= fmax)
-    freqs_b = freqs[band]
-    power_b = power[band]
+    freqs_b, power_b = freqs[band], power[band]
 
     if len(freqs_b) < 5:
         return [], freqs_b, power_b
 
-    # --- Local maxima peak finding ---
-    # Convert desired minimum separation in frequency to bins
+    # 6. Peak finding
     df = freqs_b[1] - freqs_b[0]
     min_dist_bins = max(1, int(np.ceil(peak_min_distance_hz / df)))
-
-    # Prominence threshold
     prom_abs = peak_min_prominence_ratio * np.max(power_b)
 
     peak_idx, props = find_peaks(power_b, prominence=prom_abs, distance=min_dist_bins)
 
     if peak_idx.size == 0:
-        # fallback: return the single global max if no peak passes threshold
-        i = int(np.argmax(power_b))
-        f = float(freqs_b[i])
-        return [(f, float(1.0/f), float(power_b[i]))], freqs_b, power_b
+        idx = int(np.argmax(power_b))
+        return [(float(freqs_b[idx]), float(1.0 / freqs_b[idx]), float(power_b[idx]))], freqs_b, power_b
 
-    # Rank peaks by prominence primarily (more robust than raw height), break ties by height
+    # 7. Sorting and output
     prominences = props.get("prominences", np.zeros_like(peak_idx, dtype=float))
-    heights = power_b[peak_idx]
-    order = np.lexsort((heights, prominences))[::-1]  # descending
+    order = np.lexsort((power_b[peak_idx], prominences))[::-1]
     peak_idx_sorted = peak_idx[order]
 
-    # Build output list
-    peaks = []
-    for i in peak_idx_sorted[:n_peaks]:
-        f = float(freqs_b[i])
-        p = float(power_b[i])
-        peaks.append((f, float(1.0/f), p))
+    peaks = [(float(freqs_b[i]), float(1.0 / freqs_b[i]), float(power_b[i])) for i in peak_idx_sorted[:n_peaks]]
 
     return peaks, freqs_b, power_b
 
@@ -547,11 +510,11 @@ def plot_spectrum_stack(t, y, t_min_list = (2.0, 3.0, 3.5, 4.0), t_max = 8.5, de
 # peaks, freqs_b, power_b = dominant_periods_fft(dict9["t"], dict9["v2"], t_min= t_min, t_max = t_max, detrend='linear', n_peaks=3, fmin=f_min)
 # print(peaks)  # list of (freq, period, power)
 # plot_spectrum(freqs_b, power_b, t_min= t_min, t_max = t_max, fmax=5,  logy=False)
-# plot_spectrum_stack(dict9["t"], dict9["v2"], t_max = None, logy = False)
+# plot_spectrum_stack(dict9["t"], dict9["v2"], t_max = t_max, logy = False)
 
-def oscillation_summary(data, t_star, t_out=9.0, fmin=0.3, fmax_plot=5.0, n_peaks=5, title=""):
+def oscillation_summary(data, t_star, t_out=9.0, fmin=0.05, fmax_plot=5.0, y_log = False, n_peaks=3, title=""):
     t = np.asarray(data["t"], float)
-    v = np.asarray(data["v1"], float)
+    v = np.asarray(data["v2"], float)
 
     peaks, freqs_b, power_b = dominant_periods_fft(
         t, v, t_min=t_star, t_max=t_out,
@@ -560,9 +523,10 @@ def oscillation_summary(data, t_star, t_out=9.0, fmin=0.3, fmax_plot=5.0, n_peak
 
     # plot (zoomed)
     m = freqs_b <= fmax_plot
-    plt.figure(figsize=(8,4))
+    plt.figure(figsize=(7,4))
     plt.plot(freqs_b[m], power_b[m], lw=1.0)
-    #plt.yscale("log")
+    if y_log:
+        plt.yscale("log")
     for f, T, _ in peaks:
         if f <= fmax_plot:
             plt.axvline(f, ls="--", lw=1.0)
@@ -576,13 +540,13 @@ def oscillation_summary(data, t_star, t_out=9.0, fmin=0.3, fmax_plot=5.0, n_peak
 
     return peaks
 
-# peaks_9  = oscillation_summary(dict9,  t_star=2.67, t_out=9.0, title="9Å: v1 spectrum")
-# peaks_18 = oscillation_summary(dict18, t_star=4.90, t_out=8.5, title="18Å: v1 spectrum")
+# peaks_9  = oscillation_summary(dict9,  t_star=2.67, t_out=9.0, fmax_plot= 3,  title="Velocity Spectrum: Top Iodine (9 Å)", y_log=False)
+# peaks_18 = oscillation_summary(dict18, t_star=4.90, t_out=8.5, fmax_plot= 3, title="Velocity Spectrum: Top Iodine (18 Å)", y_log=False)
 # print("9Å peaks:", peaks_9[:3])
 # print("18Å peaks:", peaks_18[:3])
 
 
-def smooth_range_only(t, v, t_start, t_end, window_length, polyorder=3, enable_plot=False):
+def smooth_range_only(t, v, case_distance, t_start, t_end, window_length, polyorder=3, enable_plot=False):
     """
     Smooths a specific time range and optionally plots the result with boundaries.
     """
@@ -620,7 +584,7 @@ def smooth_range_only(t, v, t_start, t_end, window_length, polyorder=3, enable_p
         plt.axvline(t_start, color='red', linestyle='--', alpha=0.7, label='Start Smoothing')
         plt.axvline(t_end, color='red', linestyle='--', alpha=0.7, label='End Smoothing')
 
-        plt.title(f'Smoothing Verification: {t_start}s to {t_end}s')
+        plt.title(f'{case_distance} Å Smoothing Verification: {t_start}s to {t_end}s')
         plt.xlabel('t / ps')
         plt.ylabel('v / Å/ps')
         plt.legend()
@@ -629,6 +593,6 @@ def smooth_range_only(t, v, t_start, t_end, window_length, polyorder=3, enable_p
 
     return v_full_smoothed
 
-v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], t_start=2.67, t_end=8.2, window_length=4501, polyorder=3, enable_plot=True)
-v_part_smoothed = smooth_range_only(dict18["t"], dict18["v2"], t_start=4.50, t_end=8.0, window_length=2501, polyorder=3, enable_plot=True)
+v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], 9,  t_start=2.67, t_end=8.5, window_length=1899, polyorder=3, enable_plot=True)
+v_part_smoothed = smooth_range_only(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=2401, polyorder=3, enable_plot=True)
 

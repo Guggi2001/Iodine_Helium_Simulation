@@ -33,7 +33,7 @@ def rolling_rms(x, win):
     return rms
 
 def find_t_star_stationary_residual(
-    t, v,
+    t, v, distance_case,
     dt=None,
     t_out=9.0,
     # mild trend removal:
@@ -123,9 +123,9 @@ def find_t_star_stationary_residual(
     }
 
     if show:
-        fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-
-        ax[0].plot(t, v, 'k', lw=0.7, label="v1 raw")
+        fig, ax = plt.subplots(2, 1, figsize=(7, 4), sharex=True)
+        fig.suptitle(f'{distance_case} Å case for top iodine atom', fontsize=16, fontweight='bold')
+        ax[0].plot(t, v, 'k', lw=0.7, label="v_top raw")
         ax[0].plot(t, v_trend, 'r--', lw=1.2, label=f"trend (SG {trend_win_ps} ps)")
         ax[0].axvline(t_out, color='k', ls=':', label="t_out")
         if t_star is not None:
@@ -155,11 +155,11 @@ t18 = dict18["t"]
 v18 = dict18["v2"]
 
 t_star18, diag18 = find_t_star_stationary_residual(
-    t18, v18,
-    t_out=9.0,
+    t18, v18, 18,
+    t_out=8.5,
     trend_win_ps=0.8,
     rms_win_ps=0.5,
-    late_window=(5, 8.5),
+    late_window=(5, 8),
     k=2.5,
     sustain_ps=0.8,
     show=True
@@ -171,11 +171,11 @@ print(diag18)
 t9 = dict9["t"]
 v9 = dict9["v2"]
 t_star9, diag9 = find_t_star_stationary_residual(
-    t9, v9,
+    t9, v9, 9,
     t_out=9.0,
     trend_win_ps=0.8,
     rms_win_ps=0.5,
-    late_window=(5, 6.5),
+    late_window=(5, 8.5),
     k=2.5,
     sustain_ps=0.8,
     show=True

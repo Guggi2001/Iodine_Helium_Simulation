@@ -75,6 +75,7 @@ if test:
     # --- 9A Case ---
     bubble_exit_9_top = 9.0
     bubble_exit_9_bottom = 7.5
+    transient_exclusion_9 = 2.71
     dict9 = load_data(C.PATH9A)
     fig9, axs = plt.subplots(2, 2, figsize=(7, 4), constrained_layout=True)
     fig9.suptitle('HeDFT Reference Results: 9Å', fontsize=16, fontweight='bold')
@@ -84,6 +85,7 @@ if test:
     axs[0, 0].set_title('Velocity: Bottom Iodine (9Å)')
     axs[0, 0].set_ylabel('v / Å/ps')
     axs[0, 0].axvline(x=bubble_exit_9_bottom, color='red', linestyle='--', label='approximate bubble exit')
+    axs[0, 0].axvline(x=transient_exclusion_9, color='green', linestyle='--', label='transient exclusion')
 
     # Velocity Iodine 2
     axs[0, 1].plot(dict9['t'], dict9['v2'], color='#D95319', lw=1.5)
@@ -105,7 +107,8 @@ if test:
     plt.show()
 
     # --- 18A Case ---
-    bubble_exit_18 = 8.5  # <--- Change this value later
+    bubble_exit_18 = 8.5
+    transient_exclusion_18  = 4.54
     dict18 = load_data(C.PATH18A)
     fig18, axs = plt.subplots(2, 2, figsize=(7, 4), constrained_layout=True)
     fig18.suptitle('HeDFT Reference Results: 18Å', fontsize=16, fontweight='bold')
@@ -120,6 +123,7 @@ if test:
     axs[0, 1].plot(dict18['t'][:len(dict18['v2'])], dict18['v2'], color='#D95319', lw=1.2)
     axs[0, 1].set_title('Velocity: Top Iodine (18Å)')
     axs[0, 1].axvline(x=bubble_exit_18, color='red', linestyle='--', label='approximate bubble exit')
+    axs[0, 1].axvline(x=transient_exclusion_18, color='green', linestyle='--', label='transient exclusion')
 
     # Cleanup & Bottom Plot
     gs = axs[1, 0].get_gridspec()
@@ -132,4 +136,31 @@ if test:
 
     for ax in fig18.axes: ax.grid(True, alpha=0.3)
     axs[0, 1].legend()
+    plt.show()
+
+    scaling = 0.76
+    # Single plot for velocity top iodine
+    plt.figure(figsize=(7*scaling, 4*scaling))
+    plt.plot(dict9['t'], dict9['v2'], color='#D95319', lw=1.2, label='Velocity Iodine')
+    plt.axvline(bubble_exit_9_top, color='red', linestyle='--', alpha=0.7, label='approximate bubble exit (9Å)')
+    plt.axvline(transient_exclusion_9, color='green', linestyle='--', alpha=0.7, label='transient exclusion')
+    plt.legend()
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.title('Velocity: Top Iodine (9 Å)')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+    # Single plot for velocity top iodine
+    plt.figure(figsize=(7*scaling, 4*scaling))
+    plt.plot(dict18['t'], dict18['v2'], color='#D95319', lw=1.2, label='Velocity Iodine')
+    plt.axvline(bubble_exit_18, color='red', linestyle='--', alpha=0.7, label='approximate bubble exit (9Å)')
+    plt.axvline(transient_exclusion_18, color='green', linestyle='--', alpha=0.7, label='transient exclusion')
+    plt.legend()
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.title('Velocity: Top Iodine (18 Å)')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
     plt.show()
