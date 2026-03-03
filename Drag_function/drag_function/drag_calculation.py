@@ -545,6 +545,47 @@ def oscillation_summary(data, t_star, t_out=9.0, fmin=0.05, fmax_plot=5.0, y_log
 # print("9Å peaks:", peaks_9[:3])
 # print("18Å peaks:", peaks_18[:3])
 
+def _extract_relevant_region(t, v, t_start, t_end):
+    mask = (t >= t_start) & (t <= t_end)
+    return np.asarray(t)[mask], np.asarray(v)[mask]
+
+
+def extract_smoothed_region(t,v, t_start, t_end, case_distance, window_length, polyorder=3, enable_plot=False):
+    """
+    Smooths a specific time range and optionally plots the result with boundaries.
+    """
+    t = np.asarray(t)
+    v = np.asarray(v)
+
+    # 1. Identify indices
+    mask = (t >= t_start) & (t <= t_end)
+    indices = np.where(mask)[0]
+
+    if len(indices) == 0:
+        raise ValueError(f"No data found in range {t_start} to {t_end}")
+
+    idx_start, idx_end = indices[0], indices[-1]
+
+    # 2. Extract and Smooth
+    t_segment = t[idx_start: idx_end + 1]
+    v_segment = v[idx_start: idx_end + 1]
+    v_s_segment, resid, dt = sg_smooth_v(t_segment, v_segment, window_length, polyorder)
+
+
+    # 4. Optional Diagnostic Plot
+    if enable_plot:
+        plt.figure(figsize=(10, 4))
+        plt.plot(t_segment, v_segment, color='gray', alpha=0.4, label='Original (Full)')
+        plt.plot(t_segment, v_s_segment, color='#0072BD', lw=1.5, label='Stitched Result')
+
+        plt.title(f'{case_distance} Å Smoothing Verification: {t_start}s to {t_end}s')
+        plt.xlabel('t / ps')
+        plt.ylabel('v / Å/ps')
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.show()
+
+    return t_segment, v_s_segment
 
 def smooth_range_only(t, v, case_distance, t_start, t_end, window_length, polyorder=3, enable_plot=False):
     """
@@ -593,6 +634,8 @@ def smooth_range_only(t, v, case_distance, t_start, t_end, window_length, polyor
 
     return v_full_smoothed
 
-v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], 9,  t_start=2.67, t_end=8.5, window_length=1899, polyorder=3, enable_plot=True)
-v_part_smoothed = smooth_range_only(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=2401, polyorder=3, enable_plot=True)
+# v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], 9,  t_start=2.67, t_end=8.5, window_length=1899, polyorder=3, enable_plot=True)
+# v_part_smoothed = smooth_range_only(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=2401, polyorder=3, enable_plot=True)
 
+t_seg, v_s_seg = smooth_range_only(dict9["t"], dict9["v2"], 18,  t_start=2.67, t_end=8.5, window_length=1899, polyorder=3, enable_plot=True)
+t_seg, v_s_seg = smooth_range_only(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=2401, polyorder=3, enable_plot=True)
