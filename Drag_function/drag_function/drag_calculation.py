@@ -1,6 +1,13 @@
-import matplotlib.pyplot as plt
-import numpy as np
+from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Dict, Tuple, Optional
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.interpolate import UnivariateSpline
+from scipy.signal import savgol_filter
+import pandas as pd
 #//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #                                                         Load Config and Data
 #//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -8,634 +15,421 @@ from config_utils_local import config as C
 from drag_function import io
 
 
-dict9 = io.load_data(C.PATH9A)
-dict18 = io.load_data(C.PATH18A)
 
+test = True
+if test:
+    dict9 = io.load_data(C.PATH9A)
+    dict18 = io.load_data(C.PATH18A)
 
-#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#                                                         Actual Run Tests
-#//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    t = dict18["t"]
+    v = dict18["v2"]
+    mask = (t >= 4.54) & (t <= 8)
+    t_w = t[mask]
+    v_w = v[mask]
+    wl = 2401
+    polyorder = 1
+    v_s = savgol_filter(v_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
 
-from dataclasses import dataclass
-from scipy.signal import savgol_filter
-
-# ---------------------------
-# Unit conversion constants
-# ---------------------------
-AMU_TO_KG = 1.66053906660e-27
-A_TO_M = 1.0e-10
-PS_TO_S = 1.0e-12
-EV_TO_J = 1.602176634e-19
-
-# Convert (amu * Å/ps^2) to (eV/Å)
-# Start: amu * Å/ps^2
-# -> kg * m/s^2 = N
-# -> eV/Å
-AMU_A_PS2_TO_EV_PER_A = (
-    AMU_TO_KG * (A_TO_M / (PS_TO_S**2))   # kg * m/s^2 per (amu * Å/ps^2) = N
-    * (1.0 / EV_TO_J)                     # eV/m per N
-    * A_TO_M                              # eV/Å per (eV/m)
-)
-
-# Coulomb constant in eV·Å for elementary charges
-KE_EV_A = 14.3996454784255
-
-
-@dataclass
-class DragExtractionParams:
-    window_length: int = 1001  # must be odd
-    polyorder: int = 3
-    q1: int = 1
-    q2: int = 1
-    mu_eff_amu: float = None   # effective reduced mass in amu (must be set)
-    t_min_ps: float = 0.0      # optional transient exclusion
-    r_min_A: float = 0.0       # optional: exclude very small R
-    r_max_A: float = np.inf    # optional: exclude very large R
-    show_plot: bool = True    # if True, display control plot of raw vs smoothed R
-
-
-def _check_uniform_dt(t: np.ndarray, tol: float = 1e-3) -> float:
-    dt = np.diff(t)
-    rel = np.std(dt) / np.mean(dt)
-    if rel > tol:
-        raise ValueError(f"Non-uniform dt detected: std/mean = {rel:.2e}. "
-                         "SG derivative assumes uniform sampling.")
-    return float(np.mean(dt))
-
-
-def _ensure_odd(n: int) -> int:
-    return n if (n % 2 == 1) else n + 1
-
-
-def extract_drag_from_R(dict_data: dict, params: DragExtractionParams):
-    """
-    Expects dict_data to contain:
-      - 't' : time in ps
-      - 'R' : separation in Å
-    Optional:
-      - could also include v1/v2 but not needed here
-
-    Returns:
-      arrays for:
-        t_sel, R_smooth, vR, aR, F_drive, F_drag
-    """
-    if params.mu_eff_amu is None:
-        raise ValueError("params.mu_eff_amu must be set (effective reduced mass in amu).")
-
-    t = np.asarray(dict_data["t"], dtype=float)
-    R = np.asarray(dict_data["R"], dtype=float)
-
-    dt = _check_uniform_dt(t)
-
-    wl = _ensure_odd(params.window_length)
-    if wl >= len(t):
-        raise ValueError(f"window_length={wl} must be smaller than data length={len(t)}.")
-    if params.polyorder >= wl:
-        raise ValueError("polyorder must be < window_length.")
-
-    # Smooth R(t)
-    R_s = savgol_filter(R, window_length=wl, polyorder=params.polyorder, deriv=0, delta=dt, mode="interp")
-
-    # Optional control plot comparing raw R and smoothed R (non-fatal)
-    if getattr(params, "show_plot", False):
-        try:
-            plt.figure(figsize=(8, 4))
-            plt.plot(t, R, 'r-', label="R (raw)")
-            plt.plot(t, R_s, 'b--', lw=1.5, label="R (smoothed)")
-            plt.xlabel("t (ps)")
-            plt.ylabel("R (Å)")
-            plt.title("Control: raw R vs smoothed R")
-            plt.legend()
-            plt.grid(True)
-            plt.tight_layout()
-            plt.show()
-        except Exception:
-            # Don't let plotting errors break the extraction
-            pass
-
-    # First derivative: vR = dR/dt
-    vR = savgol_filter(R, window_length=wl, polyorder=params.polyorder, deriv=1, delta=dt, mode="interp")
-
-    # Compare vR to sum of velocities from the input dict (v1 + v2)
-    if ("v1" in dict_data) and ("v2" in dict_data):
-        v1_arr = np.asarray(dict_data["v1"], dtype=float)
-        v2_arr = np.asarray(dict_data["v2"], dtype=float)
-        # Align lengths: if lengths match t, sum directly; otherwise interpolate across the same time span
-        if len(v1_arr) == len(t) and len(v2_arr) == len(t):
-            v_sum = v1_arr + v2_arr
-        else:
-            # Map v1/v2 linearly onto t assuming they span the same time interval
-            try:
-                v1_on_t = np.interp(t, np.linspace(t[0], t[-1], len(v1_arr)), v1_arr)
-                v2_on_t = np.interp(t, np.linspace(t[0], t[-1], len(v2_arr)), v2_arr)
-                v_sum = v1_on_t + v2_on_t
-            except Exception:
-                v_sum = None
-
-        if (v_sum is not None) and getattr(params, "show_plot", False):
-            try:
-                plt.figure(figsize=(8, 4))
-                plt.plot(t, vR, color="#ff7f0e", lw=1.5, label="vR (smoothed)")
-                plt.plot(t, v_sum, color="#2ca02c", alpha=0.9, label="v1+v2 (dict)")
-                plt.xlabel("t (ps)")
-                plt.ylabel("velocity (Å/ps)")
-                plt.title("Control: vR vs v1+v2")
-                plt.legend()
-                plt.grid(True)
-                plt.tight_layout()
-                plt.show()
-            except Exception:
-                pass
-
-    # Second derivative: aR = d2R/dt2
-    aR = savgol_filter(R, window_length=wl, polyorder=params.polyorder, deriv=2, delta=dt, mode="interp")
-
-    # Selection mask (transient and R-range)
-    mask = (t >= params.t_min_ps) & (R_s >= params.r_min_A) & (R_s <= params.r_max_A)
-
-    t_sel = t[mask]
-    R_sel = R_s[mask]
-    vR_sel = vR[mask]
-    aR_sel = aR[mask]
-
-    # Coulomb drive along R (magnitude), in eV/Å
-    F_drive = (KE_EV_A * params.q1 * params.q2) / (R_sel**2)
-
-    # Inertial term mu * aR converted to eV/Å
-    F_inert = (params.mu_eff_amu * aR_sel) * AMU_A_PS2_TO_EV_PER_A
-
-    # Drag (magnitude along the separation coordinate)
-    F_drag = F_drive - F_inert
-
-    return {
-        "t": t_sel,
-        "R": R_sel,
-        "vR": vR_sel,
-        "aR": aR_sel,
-        "F_drive": F_drive,
-        "F_inert": F_inert,
-        "F_drag": F_drag,
-        "dt": dt,
-        "window_length": wl,
-        "polyorder": params.polyorder,
-    }
-
-my_settings = DragExtractionParams(
-    mu_eff_amu=105,
-    t_min_ps=2,
-)
-
-#test = extract_drag_from_R(dict18, my_settings)
-
-
-def sg_smooth_v(t, v, window_length, polyorder=3):
-    t = np.asarray(t, float)
-    v = np.asarray(v, float)
-
-    # Ensure window_length is a plain int for savgol_filter and for parity checks
-    window_length = int(window_length)
-
-    dt = np.mean(np.diff(t))
-    if not np.allclose(np.diff(t), dt, rtol=1e-3, atol=1e-12):
-        raise ValueError("t is not uniformly spaced enough for SG derivative.")
-
-    if window_length % 2 == 0:
-        window_length += 1
-    if window_length >= len(v):
-        raise ValueError("window_length must be smaller than data length.")
-    if polyorder >= window_length:
-        raise ValueError("polyorder must be < window_length.")
-
-    v_s = savgol_filter(v, window_length=window_length, polyorder=polyorder, deriv=0, delta=dt, mode="interp")
-    resid = v - v_s
-    return v_s, resid, dt
-
-
-
-def plot_test_smoothing(dictionary, atom, z_component = False,  polyorder = 3):
-    v_list = []
-    resid_list = []
-    t_list = []
-    wl = []
-    if z_component:
-        y = dictionary[f"v{atom}_z"]
-    else:
-        y = dictionary[f"v{atom}"]
-
-    for i in range(500, 8500, 2000):
-        v_s, resid, dt = sg_smooth_v(dictionary["t"], y, window_length=i, polyorder = polyorder)
-        v_list.append(v_s)
-        wl.append(i)
-        resid_list.append(resid)
-        t_list.append(dt)
-        t_full = np.asarray(dictionary["t"], float)
-        v_full = np.asarray(y, float)
-        fig, axs = plt.subplots(1, 2, figsize=(12, 4))
-
-        # Left: overlay raw v1 with smoothed signals
-        axs[0].plot(t_full, v_full, color='k', lw=0.8, label=f'v{atom} (raw)')
-        axs[0].plot(t_full, v_s, 'b--', lw=1.2, alpha=0.9, label=f'v{atom}_s wl={i}')
-        axs[0].set_xlabel('t (ps)')
-        axs[0].set_ylabel('velocity (Å/ps)')
-        axs[0].set_title(f'v{atom}: raw vs smoothed')
-        axs[0].legend(fontsize='small')
-        axs[0].grid(True)
-
-        # Right: residuals (v1 - v1_s) for each smoothing; include RMS in legend
-        rms = np.sqrt(np.mean(resid ** 2))
-        axs[1].plot(t_full, resid, lw=1.0, alpha=0.9, label=f'wl={i}  RMS={rms:.3e}')
-        axs[1].axhline(0.0, color='k', lw=0.8, alpha=0.6)
-        axs[1].set_xlabel('t (ps)')
-        axs[1].set_ylabel('residual (Å/ps)')
-        axs[1].set_title(f'Residuals: v{atom} - v{atom}_s')
-        axs[1].legend(fontsize='small')
-        axs[1].grid(True)
-
-        plt.tight_layout()
-        plt.show()
-
-
-    fig, axs = plt.subplots(1, 2, figsize=(12, 4))
-    t_full = np.asarray(dictionary["t"], float)
-    axs[0].plot(t_full, v_full, color='k', lw=0.7, alpha=0.95, label='v1 (raw)')
-    for i in range(len(v_list)):
-        axs[0].plot(t_full, v_list[i], ls = '--', lw=1.2, label=f'v{atom}_s wl={wl[i]}')
-        axs[0].set_xlabel('t (ps)')
-        axs[0].set_ylabel('velocity (Å/ps)')
-        axs[0].set_title('v1: smoothed')
-        axs[0].legend(fontsize='small')
-        axs[0].grid(True)
-
-        rms = np.sqrt(np.mean(resid_list[i] ** 2))
-        axs[1].plot(t_full, resid_list[i], lw=1.0, alpha=0.9, label=f'wl={wl[i]}  RMS={rms:.3e}')
-        axs[1].axhline(0.0, color='k', lw=0.8, alpha=0.6)
-        axs[1].set_xlabel('t (ps)')
-        axs[1].set_ylabel('residual (Å/ps)')
-        axs[1].set_title('Residuals: v1 - v1_s')
-        axs[1].legend(fontsize='small')
-        axs[1].grid(True)
-    plt.tight_layout()
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_w, v_w, color='gray', alpha=0.4, label='Original')
+    plt.plot(t_w, v_s, color='#0072BD', lw=1.5, label='Smoothed')
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
     plt.show()
 
-#plot_test_smoothing(dict18, 2, z_component = False, polyorder = 3)
+    data = pd.read_csv('cleaned_data.csv')
+    t_9 = data['time'].values
+    v_9_SG = data['cleaned_SG'].values
+    v_9_IMF = data['IMF_cleaned'].values
+    t_9_full = dict9["t"]
+    v_9 = dict9["v2"]
+    mask_9 = (t_9_full >= 2.67) & (t_9_full <= 8.5)
+    t_9_w = t_9_full[mask_9]
+    v_9_w = v_9[mask_9]
+
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_9_w, v_9_w, color='gray', alpha=0.4, label='Original')
+    plt.plot(t_9, v_9_SG, color='#D95319', lw=1.5, label='Smoothed (SG)')
+    plt.plot(t_9, v_9_IMF, color='#0072BD', lw=1.5, label='Smoothed (IMF)')
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
+
+#/////////////////////////////////////////////////////////////////////////////////////////////
+#                                     Actual Run Tests
+#////////////////////////////////////////////////////////////////////////////////////////////
+
+"""
+Instantaneous drag extraction from TD-DFT trajectories using spline differentiation.
+
+Pipeline (trusted interior only)
+--------------------------------
+1) Inputs:
+   - t(t): time [ps]
+   - R(t): separation [Å]
+   - v(t): speed (or longitudinal component) [Å/ps]  (already smoothed in your chosen window)
+
+2) Compute Coulomb driving force:
+   F_C(R) = k_e * q1*q2 / R^2   in [amu*Å/ps^2]
+
+3) Compute acceleration via cubic spline:
+   a(t) = dv/dt from spline derivative  in [Å/ps^2]
+
+4) Force balance:
+   F_drag(t) = F_C(t) - m_eff * a(t)    in [amu*Å/ps^2]
+
+5) Characterize drag law:
+   Plot F_drag vs v and fit |F_drag| ≈ gamma * v^n
+
+Notes
+-----
+- Spline derivatives are unreliable near edges => we compute on a trusted interior,
+  truncating first/last N points.
+- Units are explicit on every variable, per your request.
+"""
 
 
-def dominant_periods_fft(t, y, t_min=None, t_max=None, detrend='linear', n_peaks=3, fmin=0.05, fmax=None):
+
+
+# =============================================================================
+# Constants & unit conversions
+# =============================================================================
+
+# Masses [amu]
+M_IODINE_AMU = 126.90447        # iodine atom mass [amu]
+M_HELIUM_AMU = 4.002602         # helium atom mass [amu]
+
+# Effective mass (your definition) [amu]
+# meff = m_I + 21*m_He  (no backflow term here; add later if needed)
+N_HE_SHELL = 21
+M_EFF_AMU = M_IODINE_AMU + N_HE_SHELL * M_HELIUM_AMU  # [amu]
+
+# Coulomb constant in eV·Å for elementary charges (+1e, +1e)
+K_E_EV_A = 14.3996454784255     # [eV*Å]
+
+# Given conversion:
+# 1 eV/Å ≈ 9648.5 amu*Å/ps^2  (user-provided; use as authoritative here)
+EV_PER_A_TO_AMU_A_PER_PS2 = 9648.5  # [(amu*Å/ps^2) / (eV/Å)]
+
+
+# =============================================================================
+# Settings
+# =============================================================================
+
+@dataclass(frozen=True)
+class DragExtractionSettings:
+    q1: int = 1                              # charge number for ion 1 [+e]
+    q2: int = 1                              # charge number for ion 2 [+e]
+    meff_amu: float = M_EFF_AMU              # effective mass [amu]
+
+    # Spline fit settings
+    spline_k: int = 3                        # cubic spline
+    spline_s: Optional[float] = None         # smoothing parameter s (None => auto heuristic)
+
+    # Trusted interior handling
+    truncate_points: int = 500               # drop first/last N points (dt=0.001 ps => 0.5 ps)
+    # If you prefer time-based truncation, set truncate_points=None and use truncate_time_ps
+    truncate_time_ps: Optional[float] = None # [ps]
+
+    # Diagnostics
+    show_plots: bool = True
+    fit_power_law: bool = True               # fit |F_drag| = gamma * v^n
+
+
+# =============================================================================
+# Core helpers
+# =============================================================================
+
+def check_uniform_dt(t_ps: np.ndarray, rtol: float = 1e-3) -> float:
+    """Return dt [ps] and validate uniform sampling."""
+    t_ps = np.asarray(t_ps, float)
+    dt = np.diff(t_ps)
+    dt_mean = float(np.mean(dt))
+    if not np.allclose(dt, dt_mean, rtol=rtol, atol=1e-12):
+        raise ValueError("Non-uniform dt detected. Resample before spline differentiation.")
+    return dt_mean
+
+
+def coulomb_force_amuAps2(R_A: np.ndarray, q1: int = 1, q2: int = 1) -> np.ndarray:
     """
-    Returns dominant periods (ps) from FFT power spectrum of y(t).
+    Coulomb force magnitude for two +1e charges separated by R.
 
-    Parameters
-    ----------
-    t : array, ps
-    y : array
-    t_min, t_max : float or None
-        restrict time window (helps focus on quasi-stationary region)
-    detrend : {'none','mean','linear'}
-    n_peaks : int
-        number of peaks to report
-    fmin : float
-        ignore frequencies below this (1/ps) to avoid drift dominating
-    fmax : float or None
-        optional max frequency (1/ps), default Nyquist
-    show : bool
-        plot spectrum and mark peaks
+    Inputs
+    ------
+    R_A : separation [Å]
 
     Returns
     -------
-    peaks : list of (freq[1/ps], period[ps], power)
-    freqs, power : arrays for further analysis
+    F_C : Coulomb force magnitude [amu*Å/ps^2]
     """
-    t = np.asarray(t, float)
-    y = np.asarray(y, float)
-
-    # Time window
-    mask = np.ones_like(t, dtype=bool)
-    if t_min is not None:
-        mask &= (t >= t_min)
-    if t_max is not None:
-        mask &= (t <= t_max)
-
-    tt = t[mask]
-    yy = y[mask]
-
-    # Uniform dt check
-    dt = np.mean(np.diff(tt))
-    if not np.allclose(np.diff(tt), dt, rtol=1e-3, atol=1e-12):
-        raise ValueError("t is not uniformly spaced enough for FFT peak detection.")
-
-    # Detrend
-    if detrend == 'mean':
-        yy = yy - np.mean(yy)
-    elif detrend == 'linear':
-        A = np.vstack([tt, np.ones_like(tt)]).T
-        m, c = np.linalg.lstsq(A, yy, rcond=None)[0]
-        yy = yy - (m*tt + c)
-    elif detrend == 'none':
-        pass
-    else:
-        raise ValueError("detrend must be 'none', 'mean', or 'linear'.")
-
-    # Apply a mild window to reduce leakage
-    w = np.hanning(len(yy))
-    yyw = yy * w
-
-    # One-sided FFT
-    Y = np.fft.rfft(yyw)
-    freqs = np.fft.rfftfreq(len(yyw), d=dt)  # 1/ps
-    power = (np.abs(Y)**2)
-
-    # Frequency limits
-    nyq = 0.5/dt
-    if fmax is None:
-        fmax = nyq
-    band = (freqs >= fmin) & (freqs <= fmax)
-    freqs_b = freqs[band]
-    power_b = power[band]
-
-    # Find peak candidates (simple: sort by power)
-    idx_sorted = np.argsort(power_b)[::-1]
-    peaks = []
-    used = []
-    for idx in idx_sorted:
-        f = freqs_b[idx]
-        p = power_b[idx]
-        # avoid near-duplicates
-        if any(abs(f - fu) < 0.02 for fu in used):
-            continue
-        used.append(f)
-        peaks.append((float(f), float(1.0/f), float(p)))
-        if len(peaks) >= n_peaks:
-            break
-
-    return peaks, freqs_b, power_b
+    R_A = np.asarray(R_A, float)
+    # Force in [eV/Å]
+    F_eV_per_A = (K_E_EV_A * q1 * q2) / (R_A ** 2)  # [eV/Å]
+    # Convert to [amu*Å/ps^2]
+    F_amuAps2 = F_eV_per_A * EV_PER_A_TO_AMU_A_PER_PS2  # [amu*Å/ps^2]
+    return F_amuAps2
 
 
-from scipy.signal import detrend as scipy_detrend, find_peaks
-
-
-def dominant_periods_fft(
-        t, y, t_min=None, t_max=None, detrend='linear',
-        n_peaks=3, fmin=0.05, fmax=None,
-        peak_min_prominence_ratio=0.05, peak_min_distance_hz=0.05
-):
-    t, y = np.asarray(t, float), np.asarray(y, float)
-
-    # 1. Time window
-    mask = np.ones_like(t, dtype=bool)
-    if t_min is not None: mask &= (t >= t_min)
-
-    if t_max is not None: mask &= (t <= t_max)
-    tt, yy = t[mask], y[mask]
-
-    # 2. Uniform spacing check
-    dt = np.mean(np.diff(tt))
-    if not np.allclose(np.diff(tt), dt, rtol=1e-3, atol=1e-12):
-        raise ValueError("t is not uniformly spaced enough for FFT.")
-
-    # 3. Detrending
-    if detrend == 'mean':
-        yy = yy - np.mean(yy)
-    elif detrend == 'linear':
-        yy = scipy_detrend(yy, type='linear')
-    elif detrend != 'none':
-        raise ValueError("detrend must be 'none', 'mean', or 'linear'.")
-
-    # 4. Windowing and FFT
-    yyw = yy * np.hanning(len(yy))
-    Y = np.fft.rfft(yyw)
-    freqs = np.fft.rfftfreq(len(yyw), d=dt)
-    power = np.abs(Y) ** 2
-
-    # 5. Frequency band filtering
-    fmax = fmax if fmax is not None else (0.5 / dt)
-    band = (freqs >= fmin) & (freqs <= fmax)
-    freqs_b, power_b = freqs[band], power[band]
-
-    if len(freqs_b) < 5:
-        return [], freqs_b, power_b
-
-    # 6. Peak finding
-    df = freqs_b[1] - freqs_b[0]
-    min_dist_bins = max(1, int(np.ceil(peak_min_distance_hz / df)))
-    prom_abs = peak_min_prominence_ratio * np.max(power_b)
-
-    peak_idx, props = find_peaks(power_b, prominence=prom_abs, distance=min_dist_bins)
-
-    if peak_idx.size == 0:
-        idx = int(np.argmax(power_b))
-        return [(float(freqs_b[idx]), float(1.0 / freqs_b[idx]), float(power_b[idx]))], freqs_b, power_b
-
-    # 7. Sorting and output
-    prominences = props.get("prominences", np.zeros_like(peak_idx, dtype=float))
-    order = np.lexsort((power_b[peak_idx], prominences))[::-1]
-    peak_idx_sorted = peak_idx[order]
-
-    peaks = [(float(freqs_b[i]), float(1.0 / freqs_b[i]), float(power_b[i])) for i in peak_idx_sorted[:n_peaks]]
-
-    return peaks, freqs_b, power_b
-
-
-
-def plot_spectrum(freqs, power, fmax=5.0, logy=False, t_min = None, t_max = None, title="FFT Power Spectrum"):
-    title += f" (fmin={freqs[0]:.2f} 1/ps, fmax={fmax:.2f} 1/ps)"
-    if t_max != None and t_min != None:
-        title += f"\n (t={t_min:.1f}-{t_max:.1f} ps)"
-    m = freqs <= fmax
-    plt.figure(figsize=(8,4))
-    plt.plot(freqs[m], power[m], lw=1.0)
-    if logy:
-        plt.yscale("log")
-    plt.xlabel("frequency (1/ps)")
-    plt.ylabel("power (arb.)")
-    plt.title(title)
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-def plot_spectrum_stack(t, y, t_min_list = (2.0, 3.0, 3.5, 4.0), t_max = 8.5, detrend="linear",
-    n_peaks=3, fmin=0.05, fmax_plot=5.0, logy=False, figsize=(9, 10)):
+def choose_spline_s(t_ps: np.ndarray, v_Aps: np.ndarray) -> float:
     """
-    Make a 4x1 plot: power spectra for different t_min values stacked vertically.
+    Heuristic for UnivariateSpline smoothing parameter s.
+
+    UnivariateSpline minimizes sum(w_i*(y_i - s(x_i))^2) <= s.
+    Larger s => smoother spline.
+
+    We estimate noise scale from a robust MAD of first differences.
+    This keeps spline close to data while damping small-scale chatter.
     """
-    t = np.asarray(t, float)
-    y = np.asarray(y, float)
-
-    n = len(t_min_list)
-    fig, axes = plt.subplots(n, 1, figsize=figsize, sharex=True)
-
-    # If only one axis, wrap to list for uniform handling
-    if n == 1:
-        axes = [axes]
-
-    for ax, t_min in zip(axes, t_min_list):
-        peaks, freqs_b, power_b = dominant_periods_fft(
-            t, y,
-            t_min=t_min,
-            t_max=t_max,
-            detrend=detrend,
-            n_peaks=n_peaks,
-            fmin=fmin,
-            fmax=None
-        )
-
-        m = freqs_b <= fmax_plot
-        ax.plot(freqs_b[m], power_b[m], lw=1.0)
-
-        if logy:
-            ax.set_yscale("log")
-
-        # Mark peaks
-        for f, T, _p in peaks:
-            if f <= fmax_plot:
-                ax.axvline(f, ls="--", lw=1.0, alpha=0.8)
-                ax.text(
-                    f, 0.95, f"T≈{T:.2f} ps",
-                    transform=ax.get_xaxis_transform(),
-                    rotation=90, va="top", ha="right", fontsize=9
-                )
-
-        ax.set_title(f"Power spectrum (t_min={t_min} ps) | peaks: "
-                     + ", ".join([f"{T:.2f} ps" for _, T, _ in peaks]))
-        ax.grid(True)
-
-    axes[-1].set_xlabel("frequency (1/ps)")
-    fig.supylabel("power (arb.)")
-
-    plt.tight_layout()
-    plt.show()
-
-# t_min = 2
-# t_max = 9
-# f_min = 0.05
-# peaks, freqs_b, power_b = dominant_periods_fft(dict9["t"], dict9["v2"], t_min= t_min, t_max = t_max, detrend='linear', n_peaks=3, fmin=f_min)
-# print(peaks)  # list of (freq, period, power)
-# plot_spectrum(freqs_b, power_b, t_min= t_min, t_max = t_max, fmax=5,  logy=False)
-# plot_spectrum_stack(dict9["t"], dict9["v2"], t_max = t_max, logy = False)
-
-def oscillation_summary(data, t_star, t_out=9.0, fmin=0.05, fmax_plot=5.0, y_log = False, n_peaks=3, title=""):
-    t = np.asarray(data["t"], float)
-    v = np.asarray(data["v2"], float)
-
-    peaks, freqs_b, power_b = dominant_periods_fft(
-        t, v, t_min=t_star, t_max=t_out,
-        detrend="linear", n_peaks=n_peaks, fmin=fmin
-    )
-
-    # plot (zoomed)
-    m = freqs_b <= fmax_plot
-    plt.figure(figsize=(7,4))
-    plt.plot(freqs_b[m], power_b[m], lw=1.0)
-    if y_log:
-        plt.yscale("log")
-    for f, T, _ in peaks:
-        if f <= fmax_plot:
-            plt.axvline(f, ls="--", lw=1.0)
-            plt.text(f, np.max(power_b[m])*0.8, f"T≈{T:.2f} ps", rotation=90, va="top", fontsize=9)
-    plt.xlabel("frequency (1/ps)")
-    plt.ylabel("power (arb.)")
-    plt.title(title + f" | window [{t_star},{t_out}] ps")
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
-
-    return peaks
-
-# peaks_9  = oscillation_summary(dict9,  t_star=2.67, t_out=9.0, fmax_plot= 3,  title="Velocity Spectrum: Top Iodine (9 Å)", y_log=False)
-# peaks_18 = oscillation_summary(dict18, t_star=4.90, t_out=8.5, fmax_plot= 3, title="Velocity Spectrum: Top Iodine (18 Å)", y_log=False)
-# print("9Å peaks:", peaks_9[:3])
-# print("18Å peaks:", peaks_18[:3])
-
-def _extract_relevant_region(t, v, t_start, t_end):
-    mask = (t >= t_start) & (t <= t_end)
-    return np.asarray(t)[mask], np.asarray(v)[mask]
+    v = np.asarray(v_Aps, float)
+    dv = np.diff(v)
+    mad = np.median(np.abs(dv - np.median(dv)))
+    sigma = 1.4826 * mad  # robust std estimate in [Å/ps]
+    # scale s with N * sigma^2  (dimension: (Å/ps)^2)
+    N = len(v)
+    s = float(N * (sigma ** 2))
+    # Guard: if sigma ~0 (already super smooth), allow very small s
+    return max(s, 1e-12)
 
 
-def extract_smoothed_region(t,v, t_start, t_end, case_distance, window_length, polyorder=3, enable_plot=False):
+def trusted_interior_mask(t_ps: np.ndarray, settings: DragExtractionSettings) -> np.ndarray:
     """
-    Smooths a specific time range and optionally plots the result with boundaries.
+    Build a boolean mask selecting the trusted interior region.
+    This avoids spline edge artifacts in derivatives.
     """
-    t = np.asarray(t)
-    v = np.asarray(v)
+    t_ps = np.asarray(t_ps, float)
+    n = len(t_ps)
 
-    # 1. Identify indices
-    mask = (t >= t_start) & (t <= t_end)
-    indices = np.where(mask)[0]
+    if settings.truncate_time_ps is not None:
+        t0 = t_ps[0] + settings.truncate_time_ps
+        t1 = t_ps[-1] - settings.truncate_time_ps
+        return (t_ps >= t0) & (t_ps <= t1)
 
-    if len(indices) == 0:
-        raise ValueError(f"No data found in range {t_start} to {t_end}")
-
-    idx_start, idx_end = indices[0], indices[-1]
-
-    # 2. Extract and Smooth
-    t_segment = t[idx_start: idx_end + 1]
-    v_segment = v[idx_start: idx_end + 1]
-    v_s_segment, resid, dt = sg_smooth_v(t_segment, v_segment, window_length, polyorder)
+    # point-based truncation (default)
+    N = int(settings.truncate_points)
+    if 2 * N >= n:
+        raise ValueError("truncate_points too large for the data length.")
+    mask = np.zeros(n, dtype=bool)
+    mask[N: n - N] = True
+    return mask
 
 
-    # 4. Optional Diagnostic Plot
-    if enable_plot:
-        plt.figure(figsize=(10, 4))
-        plt.plot(t_segment, v_segment, color='gray', alpha=0.4, label='Original (Full)')
-        plt.plot(t_segment, v_s_segment, color='#0072BD', lw=1.5, label='Stitched Result')
+# =============================================================================
+# Main calculation
+# =============================================================================
 
-        plt.title(f'{case_distance} Å Smoothing Verification: {t_start}s to {t_end}s')
-        plt.xlabel('t / ps')
-        plt.ylabel('v / Å/ps')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
+def main_calculation(
+    t_ps: np.ndarray,         # [ps]
+    R_A: np.ndarray,          # [Å]
+    v_Aps: np.ndarray,        # [Å/ps]   (already smoothed velocity in chosen window)
+    settings: DragExtractionSettings = DragExtractionSettings(),
+) -> Dict[str, np.ndarray]:
+    """
+    Compute F_C(t), acceleration a(t) from spline, and F_drag(t).
+
+    Returns a dict with arrays (all same length as input t), but note that only
+    the trusted interior is meaningful for derivatives and drag law fitting.
+    """
+    t_ps = np.asarray(t_ps, float)
+    R_A = np.asarray(R_A, float)
+    v_Aps = np.asarray(v_Aps, float)
+
+    if not (len(t_ps) == len(R_A) == len(v_Aps)):
+        raise ValueError("t, R, v must have the same length.")
+
+    dt_ps = check_uniform_dt(t_ps)  # [ps]
+
+    # --- spline smoothing parameter ---
+    spline_s = settings.spline_s
+    if spline_s is None:
+        spline_s = choose_spline_s(t_ps, v_Aps)
+
+    # --- spline fit: v(t) ---
+    # Units: v_Aps [Å/ps], t_ps [ps] => derivative dv/dt [Å/ps^2]
+    spline = UnivariateSpline(t_ps, v_Aps, k=settings.spline_k, s=spline_s)
+
+    v_spline_Aps = spline(t_ps)                           # [Å/ps]
+    a_spline_Aps2 = spline.derivative(1)(t_ps)            # [Å/ps^2]
+
+    # --- Coulomb force ---
+    F_C_amuAps2 = coulomb_force_amuAps2(R_A, settings.q1, settings.q2)  # [amu*Å/ps^2]
+
+    # --- drag force from force balance ---
+    # meff [amu] * a [Å/ps^2] => [amu*Å/ps^2]
+    F_inert_amuAps2 = settings.meff_amu * a_spline_Aps2                # [amu*Å/ps^2]
+    F_drag_amuAps2 = F_C_amuAps2 - F_inert_amuAps2                     # [amu*Å/ps^2]
+
+    # --- trusted interior mask ---
+    mask = trusted_interior_mask(t_ps, settings)
+
+    # --- diagnostics / sanity printouts ---
+    # Compute means on trusted interior only
+    mean_FC = float(np.mean(F_C_amuAps2[mask]))
+    mean_inert = float(np.mean(F_inert_amuAps2[mask]))
+    mean_drag = float(np.mean(F_drag_amuAps2[mask]))
+
+    print("\n=== Force magnitude sanity check (trusted interior) ===")
+    print(f"dt                       = {dt_ps:.6f} ps")
+    print(f"meff                     = {settings.meff_amu:.3f} amu")
+    print(f"mean(F_C)                = {mean_FC:.3e} amu*Å/ps^2")
+    print(f"mean(meff * vdot)        = {mean_inert:.3e} amu*Å/ps^2")
+    print(f"mean(F_drag = F_C - ...) = {mean_drag:.3e} amu*Å/ps^2")
+    print(f"spline smoothing s       = {spline_s:.3e} (Å/ps)^2\n")
+
+    # --- diagnostic plots ---
+    if settings.show_plots:
+        # Residual plot: v_data - v_spline
+        resid = v_Aps - v_spline_Aps  # [Å/ps]
+
+        fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+
+        ax[0].plot(t_ps, v_Aps, "k", lw=0.8, label="v data [Å/ps]")
+        ax[0].plot(t_ps, v_spline_Aps, "r--", lw=1.5, label="v spline [Å/ps]")
+        ax[0].fill_between(t_ps, np.min(v_Aps), np.max(v_Aps), where=mask, alpha=0.08, label="trusted interior")
+        ax[0].set_ylabel("v [Å/ps]")
+        ax[0].grid(True)
+        ax[0].legend(fontsize="small")
+
+        ax[1].plot(t_ps, resid, lw=1.0, label="residual v_data - v_spline [Å/ps]")
+        ax[1].axhline(0.0, color="k", lw=0.8, alpha=0.7)
+        ax[1].fill_between(t_ps, np.min(resid), np.max(resid), where=mask, alpha=0.08)
+        ax[1].set_xlabel("t [ps]")
+        ax[1].set_ylabel("residual [Å/ps]")
+        ax[1].grid(True)
+        ax[1].legend(fontsize="small")
+        plt.tight_layout()
         plt.show()
 
-    return t_segment, v_s_segment
+        # Acceleration and forces
+        fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
 
-def smooth_range_only(t, v, case_distance, t_start, t_end, window_length, polyorder=3, enable_plot=False):
-    """
-    Smooths a specific time range and optionally plots the result with boundaries.
-    """
-    t = np.asarray(t)
-    v = np.asarray(v)
+        ax[0].plot(t_ps, a_spline_Aps2, lw=1.2, label="vdot from spline [Å/ps²]")
+        ax[0].fill_between(t_ps, np.min(a_spline_Aps2), np.max(a_spline_Aps2), where=mask, alpha=0.08)
+        ax[0].set_ylabel("vdot [Å/ps²]")
+        ax[0].grid(True)
+        ax[0].legend(fontsize="small")
 
-    # 1. Identify indices
-    mask = (t >= t_start) & (t <= t_end)
-    indices = np.where(mask)[0]
-
-    if len(indices) == 0:
-        raise ValueError(f"No data found in range {t_start} to {t_end}")
-
-    idx_start, idx_end = indices[0], indices[-1]
-
-    # 2. Extract and Smooth
-    t_segment = t[idx_start: idx_end + 1]
-    v_segment = v[idx_start: idx_end + 1]
-    v_s_segment, resid, dt = sg_smooth_v(t_segment, v_segment, window_length, polyorder)
-
-    # 3. Stitch
-    v_full_smoothed = np.concatenate([
-        v[:idx_start],
-        v_s_segment,
-        v[idx_end + 1:]
-    ])
-
-    # 4. Optional Diagnostic Plot
-    if enable_plot:
-        plt.figure(figsize=(10, 4))
-        plt.plot(t, v, color='gray', alpha=0.4, label='Original (Full)')
-        plt.plot(t, v_full_smoothed, color='#0072BD', lw=1.5, label='Stitched Result')
-
-        # Mark boundaries
-        plt.axvline(t_start, color='red', linestyle='--', alpha=0.7, label='Start Smoothing')
-        plt.axvline(t_end, color='red', linestyle='--', alpha=0.7, label='End Smoothing')
-
-        plt.title(f'{case_distance} Å Smoothing Verification: {t_start}s to {t_end}s')
-        plt.xlabel('t / ps')
-        plt.ylabel('v / Å/ps')
-        plt.legend()
-        plt.grid(True, alpha=0.3)
+        ax[1].plot(t_ps, F_C_amuAps2, lw=1.2, label="F_C [amu*Å/ps²]")
+        ax[1].plot(t_ps, F_inert_amuAps2, lw=1.2, label="meff*vdot [amu*Å/ps²]")
+        ax[1].plot(t_ps, F_drag_amuAps2, lw=1.2, label="F_drag [amu*Å/ps²]")
+        ax[1].fill_between(t_ps, np.min(F_drag_amuAps2), np.max(F_drag_amuAps2), where=mask, alpha=0.08)
+        ax[1].set_xlabel("t [ps]")
+        ax[1].set_ylabel("Force [amu*Å/ps²]")
+        ax[1].grid(True)
+        ax[1].legend(fontsize="small")
+        plt.tight_layout()
         plt.show()
 
-    return v_full_smoothed
+    # --- Drag law plot and fit on trusted interior ---
+    v_fit = v_spline_Aps[mask]            # [Å/ps]
+    F_fit = F_drag_amuAps2[mask]          # [amu*Å/ps^2]
 
-# v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], 9,  t_start=2.67, t_end=8.5, window_length=1899, polyorder=3, enable_plot=True)
-# v_part_smoothed = smooth_range_only(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=2401, polyorder=3, enable_plot=True)
+    # Many models assume drag opposes motion; if v is speed magnitude, F_drag should be positive magnitude.
+    # If occasional negatives appear, they indicate either remaining oscillations, wrong meff, or non-Markovian effects.
+    # For a power-law fit we fit |F_drag| = gamma * v^n on positive v.
+    if settings.show_plots:
+        plt.figure(figsize=(8, 5))
+        plt.scatter(v_fit, F_fit, s=10, alpha=0.6, label="F_drag(t) samples")
+        plt.xlabel("v [Å/ps]")
+        plt.ylabel("F_drag [amu*Å/ps²]")
+        plt.title("Instantaneous drag law: F_drag(v) (trusted interior)")
+        plt.grid(True)
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
 
-t_seg, v_s_seg = smooth_range_only(dict9["t"], dict9["v2"], 18,  t_start=2.67, t_end=8.5, window_length=1899, polyorder=3, enable_plot=True)
-t_seg, v_s_seg = smooth_range_only(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=2401, polyorder=3, enable_plot=True)
+    fit_result = {}
+    if settings.fit_power_law:
+        # Fit on positive finite values
+        m = np.isfinite(v_fit) & np.isfinite(F_fit) & (v_fit > 0)
+        v_pos = v_fit[m]
+        F_pos = np.abs(F_fit[m])
+
+        # Avoid log(0)
+        m2 = F_pos > 0
+        v_pos = v_pos[m2]
+        F_pos = F_pos[m2]
+
+        if len(v_pos) >= 20:
+            # log-linear fit: log F = log gamma + n log v
+            X = np.log(v_pos)
+            Y = np.log(F_pos)
+            A = np.vstack([np.ones_like(X), X]).T
+            c0, n = np.linalg.lstsq(A, Y, rcond=None)[0]
+            gamma = float(np.exp(c0))
+            n = float(n)
+
+            fit_result = {"gamma": gamma, "n": n}
+
+            if settings.show_plots:
+                v_grid = np.linspace(np.min(v_pos), np.max(v_pos), 200)
+                F_grid = gamma * (v_grid ** n)
+                plt.figure(figsize=(8, 5))
+                plt.scatter(v_pos, F_pos, s=10, alpha=0.5, label="|F_drag| data")
+                plt.plot(v_grid, F_grid, lw=2.0, label=f"fit: |F| = γ v^n, γ={gamma:.3e}, n={n:.2f}")
+                plt.xlabel("v [Å/ps]")
+                plt.ylabel("|F_drag| [amu*Å/ps²]")
+                plt.title("Power-law fit of drag magnitude")
+                plt.grid(True)
+                plt.legend()
+                plt.tight_layout()
+                plt.show()
+
+            print("=== Drag law fit (trusted interior) ===")
+            print(f"|F_drag| ≈ gamma * v^n")
+            print(f"gamma = {gamma:.3e} [amu*Å/ps² / (Å/ps)^n]")
+            print(f"n     = {n:.3f}\n")
+        else:
+            print("Not enough valid samples for power-law fit.")
+
+    return {
+        "t_ps": t_ps,                        # [ps]
+        "R_A": R_A,                          # [Å]
+        "v_data_Aps": v_Aps,                 # [Å/ps]
+        "v_spline_Aps": v_spline_Aps,        # [Å/ps]
+        "a_spline_Aps2": a_spline_Aps2,      # [Å/ps^2]
+        "F_C_amuAps2": F_C_amuAps2,          # [amu*Å/ps^2]
+        "F_inert_amuAps2": F_inert_amuAps2,  # [amu*Å/ps^2]
+        "F_drag_amuAps2": F_drag_amuAps2,    # [amu*Å/ps^2]
+        "trusted_mask": mask,                # [bool]
+        "fit_result": fit_result,            # dict
+        "spline_s": np.array([spline_s]),    # [(Å/ps)^2]
+    }
+
+
+# =============================================================================
+# Example usage (adapt to your dict9/dict18 arrays)
+# =============================================================================
+
+dict9 = io.load_data(C.PATH9A)
+dict18 = io.load_data(C.PATH18A)
+
+data = pd.read_csv('cleaned_data.csv')
+t_9 = data['time'].values
+v_9_SG = data['cleaned_SG'].values
+v_9_IMF = data['IMF_cleaned'].values
+t_9_full = dict9["t"]
+v_9 = dict9["v2"]
+mask_9 = (t_9_full >= 2.67) & (t_9_full <= 8.5)
+t_9_w = t_9_full[mask_9]
+v_9_w = v_9[mask_9]
+R_9 = dict9["R"]
+R_9_w = R_9[mask_9]
+out = main_calculation(t_9_w, R_9_w, v_9_SG, DragExtractionSettings(truncate_points=500))
+
+t18 = dict18["t"]
+v18 = dict18["v2"]
+R18 = dict18["R"]
+mask = (t18 >= 4.54) & (t18 <= 8)
+t_18_w = t18[mask]
+v_18_w = v18[mask]
+R_18_w = R18[mask]
+wl = 2401
+polyorder = 1
+v_18_SG = savgol_filter(v_18_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
+out_18 = main_calculation(t_18_w, R_18_w, v_18_SG, DragExtractionSettings(truncate_points=500))
+
+a = 3

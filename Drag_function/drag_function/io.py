@@ -164,3 +164,54 @@ if test:
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
     plt.show()
+
+    # Overlaying both velocity curves for 9 A
+    plt.figure(figsize=(7 * scaling, 4 * scaling))
+    plt.plot(dict9['t'], dict9['v2'], color='#D95319', lw=1.2, label='Top Iodine')
+    plt.plot(dict9['t'], dict9['v1'], color='green', lw=1.2, linestyle='--', alpha=0.7, label='Bottom Iodine')
+    plt.axvline(2.8, color='red', linestyle='--', alpha=0.7, label='bottom atom starts moving sideway')
+    plt.legend()
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.title('Velocity Iodine Atoms (9 Å)')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+
+
+    # Overlaying both velocity curves for 18 A
+    plt.figure(figsize=(7 * scaling, 4 * scaling))
+    plt.plot(dict18['t'], dict18['v2'], color='#D95319', lw=1.2, label='Top Iodine')
+    plt.plot(dict18['t'], dict18['v1'], color='green', lw=1.2, linestyle='--', alpha=0.7, label='Bottom Iodine')
+    plt.legend()
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.title('Velocity Iodine Atoms (18 Å)')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+    # Overlaying top atom curves for 9 and 18 A
+    plt.figure(figsize=(7 * scaling, 4 * scaling))
+    plt.plot(dict9['t'], dict9['v2'], color='#D95319', lw=1.2, label='9 Å Top Iodine')
+    plt.plot(dict18['t'], dict18['v2'], color='green', lw=1.2, linestyle='--', alpha=0.7, label='18 Å Top Iodine')
+    plt.legend()
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.title('Velocity Top Atoms (9 & 18 Å)')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
+
+    # Overlaying bottom atom curves for 9 and 18 A
+    plt.figure(figsize=(7 * scaling, 4 * scaling))
+    plt.plot(dict9['t'], dict9['v1'], color='#D95319', lw=1.2, label='9 Å Bottom Iodine')
+    plt.plot(dict18['t'], dict18['v1'], color='green', lw=1.2, linestyle='--', alpha=0.7, label='18 Å Bottom Iodine')
+    plt.legend()
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.title('Velocity Bottom Atoms (9 & 18 Å)')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
