@@ -7,6 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.interpolate import UnivariateSpline
 from scipy.signal import savgol_filter
+from scipy.integrate import cumulative_trapezoid
 import pandas as pd
 #//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #                                                         Load Config and Data
@@ -14,9 +15,13 @@ import pandas as pd
 from config_utils_local import config as C
 from drag_function import io
 
+def reconstruct_R_from_v(v_w, t_w, R0):
+    """
+    Reconstruct R from smoothed velocity data using Savitzky-Golay filter.
+    """
+    return (R0 + cumulative_trapezoid(v_w, t_w, initial=0))
 
-
-test = True
+test = False
 if test:
     dict9 = io.load_data(C.PATH9A)
     dict18 = io.load_data(C.PATH18A)
@@ -45,20 +50,45 @@ if test:
     v_9_IMF = data['IMF_cleaned'].values
     t_9_full = dict9["t"]
     v_9 = dict9["v2"]
+    v_9_1 = dict9["v1"]
+    R_9 = dict9["R"]
     mask_9 = (t_9_full >= 2.67) & (t_9_full <= 8.5)
     t_9_w = t_9_full[mask_9]
     v_9_w = v_9[mask_9]
+    R_9_w = R_9[mask_9]
+    v_9_1_w = v_9_1[mask_9]
 
-    plt.figure(figsize=(10, 4))
-    plt.plot(t_9_w, v_9_w, color='gray', alpha=0.4, label='Original')
-    plt.plot(t_9, v_9_SG, color='#D95319', lw=1.5, label='Smoothed (SG)')
-    plt.plot(t_9, v_9_IMF, color='#0072BD', lw=1.5, label='Smoothed (IMF)')
+    wl = 4901
+    polyorder = 2
+    v9_test = savgol_filter(v_9_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
+
+
+
+    plt.figure(figsize=(7, 4))
+    plt.plot(t_9_w, v_9_1_w,  alpha=0.4, label='Given v Iodine 1')
+    plt.plot(t_9_w, v_9_w, alpha=0.4, label='Given v Iodine 2')
+    plt.plot(t_9, v_9_SG, lw=1.5, label='Smoothed (IMF + SG)')
+    plt.plot(t_9, v_9_IMF,  lw=1.5, label='Smoothed (IMF)')
+    plt.plot(t_9, v9_test, lw=1.5, label='Smoothed (Only SG)')
     plt.xlabel('t / ps')
     plt.ylabel('v / Å/ps')
+    plt.title('Velocity curves of both atoms with smoothed versions for the 9Å case')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.show()
 
+
+    plt.figure(figsize=(7, 4))
+    plt.plot(t_9_w, R_9_w, label='Given R')
+    plt.plot(t_9_w, reconstruct_R_from_v(2 * v_9_IMF, t_9_w, R0=R_9_w[0]), label='Reconstructed R')
+    plt.title('Given R and Reconstructed R in relevant time window for 9Å case')
+    plt.xlabel('Time (ps)')
+    plt.ylabel('Distance Å')
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.show()
+
+    pass
 #/////////////////////////////////////////////////////////////////////////////////////////////
 #                                     Actual Run Tests
 #////////////////////////////////////////////////////////////////////////////////////////////
@@ -138,6 +168,9 @@ class DragExtractionSettings:
     # Diagnostics
     show_plots: bool = True
     fit_power_law: bool = True               # fit |F_drag| = gamma * v^n
+    case: int = None,                        # Optional for title in plots (e.g. 9 or 18 Å case)
+
+
 
 
 # =============================================================================
@@ -174,7 +207,7 @@ def coulomb_force_amuAps2(R_A: np.ndarray, q1: int = 1, q2: int = 1) -> np.ndarr
     return F_amuAps2
 
 
-def choose_spline_s(t_ps: np.ndarray, v_Aps: np.ndarray) -> float:
+def choose_spline_s(v_Aps: np.ndarray) -> float:
     """
     Heuristic for UnivariateSpline smoothing parameter s.
 
@@ -224,7 +257,7 @@ def trusted_interior_mask(t_ps: np.ndarray, settings: DragExtractionSettings) ->
 def main_calculation(
     t_ps: np.ndarray,         # [ps]
     R_A: np.ndarray,          # [Å]
-    v_Aps: np.ndarray,        # [Å/ps]   (already smoothed velocity in chosen window)
+    v_A_per_ps: np.ndarray,        # [Å/ps]   (already smoothed velocity in chosen window)
     settings: DragExtractionSettings = DragExtractionSettings(),
 ) -> Dict[str, np.ndarray]:
     """
@@ -235,9 +268,9 @@ def main_calculation(
     """
     t_ps = np.asarray(t_ps, float)
     R_A = np.asarray(R_A, float)
-    v_Aps = np.asarray(v_Aps, float)
+    v_A_per_ps = np.asarray(v_A_per_ps, float)
 
-    if not (len(t_ps) == len(R_A) == len(v_Aps)):
+    if not (len(t_ps) == len(R_A) == len(v_A_per_ps)):
         raise ValueError("t, R, v must have the same length.")
 
     dt_ps = check_uniform_dt(t_ps)  # [ps]
@@ -245,11 +278,11 @@ def main_calculation(
     # --- spline smoothing parameter ---
     spline_s = settings.spline_s
     if spline_s is None:
-        spline_s = choose_spline_s(t_ps, v_Aps)
+        spline_s = choose_spline_s(v_A_per_ps)
 
     # --- spline fit: v(t) ---
-    # Units: v_Aps [Å/ps], t_ps [ps] => derivative dv/dt [Å/ps^2]
-    spline = UnivariateSpline(t_ps, v_Aps, k=settings.spline_k, s=spline_s)
+    # Units: v_A_per_ps [Å/ps], t_ps [ps] => derivative dv/dt [Å/ps^2]
+    spline = UnivariateSpline(t_ps, v_A_per_ps, k=settings.spline_k, s=spline_s)
 
     v_spline_Aps = spline(t_ps)                           # [Å/ps]
     a_spline_Aps2 = spline.derivative(1)(t_ps)            # [Å/ps^2]
@@ -282,13 +315,14 @@ def main_calculation(
     # --- diagnostic plots ---
     if settings.show_plots:
         # Residual plot: v_data - v_spline
-        resid = v_Aps - v_spline_Aps  # [Å/ps]
+        resid = v_A_per_ps - v_spline_Aps  # [Å/ps]
 
         fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-
-        ax[0].plot(t_ps, v_Aps, "k", lw=0.8, label="v data [Å/ps]")
+        if settings.case is not None:
+            fig.suptitle(f"Velocity and residual for {settings.case} Å case", fontweight='bold')
+        ax[0].plot(t_ps, v_A_per_ps, "k", lw=0.8, label="v data [Å/ps]")
         ax[0].plot(t_ps, v_spline_Aps, "r--", lw=1.5, label="v spline [Å/ps]")
-        ax[0].fill_between(t_ps, np.min(v_Aps), np.max(v_Aps), where=mask, alpha=0.08, label="trusted interior")
+        ax[0].fill_between(t_ps, np.min(v_A_per_ps), np.max(v_A_per_ps), where=mask, alpha=0.08, label="trusted interior")
         ax[0].set_ylabel("v [Å/ps]")
         ax[0].grid(True)
         ax[0].legend(fontsize="small")
@@ -300,12 +334,14 @@ def main_calculation(
         ax[1].set_ylabel("residual [Å/ps]")
         ax[1].grid(True)
         ax[1].legend(fontsize="small")
+
         plt.tight_layout()
         plt.show()
 
         # Acceleration and forces
         fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-
+        if settings.case is not None:
+            fig.suptitle(f"Acceleration and forces for {settings.case} Å case", fontweight='bold')
         ax[0].plot(t_ps, a_spline_Aps2, lw=1.2, label="vdot from spline [Å/ps²]")
         ax[0].fill_between(t_ps, np.min(a_spline_Aps2), np.max(a_spline_Aps2), where=mask, alpha=0.08)
         ax[0].set_ylabel("vdot [Å/ps²]")
@@ -335,7 +371,10 @@ def main_calculation(
         plt.scatter(v_fit, F_fit, s=10, alpha=0.6, label="F_drag(t) samples")
         plt.xlabel("v [Å/ps]")
         plt.ylabel("F_drag [amu*Å/ps²]")
-        plt.title("Instantaneous drag law: F_drag(v) (trusted interior)")
+        if settings.case is not None:
+            plt.title(f"Instantaneous drag law: F_drag(v) (trusted interior) for {settings.case} Å case", fontweight='bold')
+        else:
+            plt.title("Instantaneous drag law: F_drag(v) (trusted interior)", fontweight='bold')
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
@@ -372,7 +411,10 @@ def main_calculation(
                 plt.plot(v_grid, F_grid, lw=2.0, label=f"fit: |F| = γ v^n, γ={gamma:.3e}, n={n:.2f}")
                 plt.xlabel("v [Å/ps]")
                 plt.ylabel("|F_drag| [amu*Å/ps²]")
-                plt.title("Power-law fit of drag magnitude")
+                if settings.case is not None:
+                    plt.title(f"Power-law fit of drag magnitude for {settings.case} Å case", fontweight='bold')
+                else:
+                    plt.title("Power-law fit of drag magnitude", fontweight='bold')
                 plt.grid(True)
                 plt.legend()
                 plt.tight_layout()
@@ -388,7 +430,7 @@ def main_calculation(
     return {
         "t_ps": t_ps,                        # [ps]
         "R_A": R_A,                          # [Å]
-        "v_data_Aps": v_Aps,                 # [Å/ps]
+        "v_data_Aps": v_A_per_ps,                 # [Å/ps]
         "v_spline_Aps": v_spline_Aps,        # [Å/ps]
         "a_spline_Aps2": a_spline_Aps2,      # [Å/ps^2]
         "F_C_amuAps2": F_C_amuAps2,          # [amu*Å/ps^2]
@@ -418,7 +460,10 @@ t_9_w = t_9_full[mask_9]
 v_9_w = v_9[mask_9]
 R_9 = dict9["R"]
 R_9_w = R_9[mask_9]
-out = main_calculation(t_9_w, R_9_w, v_9_SG, DragExtractionSettings(truncate_points=500))
+v_9_SG_orig = savgol_filter(v_9_w, window_length=4901, polyorder=1, deriv=0, mode="interp")
+R_recon = reconstruct_R_from_v(2 * v_9_IMF, t_9_w, R0=R_9_w[0])
+out = main_calculation(t_9_w, R_9_w, v_9_SG, DragExtractionSettings(case = 9, truncate_points=500))
+
 
 t18 = dict18["t"]
 v18 = dict18["v2"]
@@ -427,9 +472,9 @@ mask = (t18 >= 4.54) & (t18 <= 8)
 t_18_w = t18[mask]
 v_18_w = v18[mask]
 R_18_w = R18[mask]
-wl = 2401
+wl = 3401
 polyorder = 1
 v_18_SG = savgol_filter(v_18_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
-out_18 = main_calculation(t_18_w, R_18_w, v_18_SG, DragExtractionSettings(truncate_points=500))
+out_18 = main_calculation(t_18_w, R_18_w, v_18_SG, DragExtractionSettings(case = 18, truncate_points=500))
 
 a = 3

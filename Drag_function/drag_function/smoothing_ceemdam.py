@@ -202,9 +202,9 @@ def plot_ceemdan_result(
 
     plt.figure(figsize=(10, 5))
     plt.plot(t_ps, y, lw=1.0, label="original signal")
+    plt.plot(t_ps, cleaned, lw=2.0, label="reconstructed baseline (IMFs excluding target)")
     if drop_indices:
         plt.plot(t_ps, extracted_mode, lw=1.0, label=f"isolated ~{target_period_ps:.2f} ps mode (sum of selected IMF(s))")
-    plt.plot(t_ps, cleaned, lw=2.0, label="reconstructed baseline (IMFs excluding target)")
     plt.xlabel("t (ps)")
     plt.ylabel("signal (arb.)")
     plt.title("CEEMDAN filtering: original vs isolated mode vs reconstructed baseline")
@@ -247,17 +247,18 @@ if __name__ == "__main__":
 
     cleaned = reconstruct_without_imfs(imfs, drop_idx)
     #%%
-    wl = 1401
-    cleaned_SG, _, _ = sg_smooth_v(t_ps, cleaned, window_length=wl, polyorder=1)
+    wls = [1001, 2501,  3901]
 
 
     plt.figure(figsize=(10, 5))
     plt.plot(t_ps, y, lw=1.0, label="original signal")
-    plt.plot(t_ps, cleaned, lw=2.0, label="reconstructed baseline (IMFs excluding target)")
-    plt.plot(t_ps, cleaned_SG, lw=2.0, ls = '--', label="reconstructed baseline (IMFs excluding target) + SG")
+    plt.plot(t_ps, cleaned, lw=2.0, label="IMF filtering")
+    for wl in wls:
+        cleaned_SG, _, _ = sg_smooth_v(t_ps, cleaned, window_length=wl, polyorder=1)
+        plt.plot(t_ps, cleaned_SG, lw=2.0, ls = '--', label="IMF + SG filtering (wl={})".format(wl))
     plt.xlabel("t (ps)")
     plt.ylabel("signal (arb.)")
-    plt.title(f"CEEMDAN filtering: original vs reconstructed baseline with window length {wl} ")
+    plt.title(f"Originial vs IMF filtering vs IMF + SG filtering with various window lengths")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
@@ -266,6 +267,9 @@ if __name__ == "__main__":
     #%%
     # Export data to CSV
     import pandas as pd
+
+    wl = 3901
+    cleaned_SG, _, _ = sg_smooth_v(t_ps, cleaned, window_length=wl, polyorder=1)
 
     # Create DataFrame with time, cleaned_SG, and IMF cleaned data
     export_data = pd.DataFrame({

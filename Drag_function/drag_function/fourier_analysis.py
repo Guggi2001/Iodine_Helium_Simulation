@@ -16,7 +16,6 @@ dict18 = io.load_data(C.PATH18A)
 #                                                         Actual Run Tests
 #//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-from dataclasses import dataclass
 from scipy.signal import savgol_filter, butter, sosfiltfilt, filtfilt
 
 
@@ -314,8 +313,8 @@ def extract_smoothed_region(t,v, case_distance, t_start, t_end,  window_length, 
     # 4. Optional Diagnostic Plot
     if enable_plot:
         plt.figure(figsize=(10, 4))
-        plt.plot(t_segment, v_segment, color='gray', alpha=0.4, label='Original (Full)')
-        plt.plot(t_segment, v_s_segment, color='#0072BD', lw=1.5, label='Stitched Result')
+        plt.plot(t_segment, v_segment, color='gray', alpha=0.4, label='Original velocity')
+        plt.plot(t_segment, v_s_segment, color='#0072BD', lw=1.5, label='Smoothed velocity')
 
         plt.title(f'{case_distance} Å Smoothing Verification: {t_start}s to {t_end}s')
         plt.xlabel('t / ps')
@@ -373,9 +372,63 @@ def smooth_range_only(t, v, case_distance, t_start, t_end, window_length, polyor
 
     return v_full_smoothed
 
-v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], 9,  t_start=2.67, t_end=8.5, window_length=2501, polyorder=1, enable_plot=True)
-# v_part_smoothed = smooth_range_only(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=2401, polyorder=3, enable_plot=True)
+#v_part_smoothed = smooth_range_only(dict9["t"], dict9["v2"], 9,  t_start=2.67, t_end=8.5, window_length=2501, polyorder=1, enable_plot=True)
+v_part_smoothed = smooth_range_only(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=3401, polyorder=1, enable_plot=True)
 
-t_seg, v_s_seg = extract_smoothed_region(dict9["t"], dict9["v2"], 18,  t_start=2.67, t_end=8.5, window_length=2501, polyorder=3, enable_plot=True)
-#t_seg, v_s_seg = extract_smoothed_region(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=2401, polyorder=3, enable_plot=True)
+t_seg, v_s_seg = extract_smoothed_region(dict9["t"], dict9["v2"], 9,  t_start=2.67, t_end=8.5, window_length=4901, polyorder=1, enable_plot=True)
+t_seg, v_s_seg = extract_smoothed_region(dict18["t"], dict18["v2"], 18,  t_start=4.543, t_end=8, window_length=3401, polyorder=1, enable_plot=True)
 
+t18 = dict18["t"]
+R18 = dict18["R"]
+v18 = dict18["v2"]
+v18_1 = dict18['v1']
+mask = (t18 >= 4.543) & (t18 <= 8)
+t_18_w = t18[mask]
+R_18_w = R18[mask]
+v_18_w = v18[mask]
+v_18_1_w = v18_1[mask]
+
+a = 3
+from scipy.integrate import cumulative_trapezoid
+def reconstruct_R_from_v(v_w, t_w, R0):
+    """
+    Reconstruct R from smoothed velocity data using Savitzky-Golay filter.
+    """
+    return (R0 + cumulative_trapezoid(v_w, t_w, initial=0))
+
+
+plt.figure(figsize=(7, 4))
+plt.plot(t_seg, v_18_w,  alpha=0.4, label='Given v Iodine 2')
+plt.plot(t_seg, v_18_1_w, alpha=0.4, label='Given v Iodine 1')
+plt.plot(t_seg, v_s_seg, label='Smoothed v (SG wl=3401)')
+plt.title('Given v and Reconstructed v')
+plt.xlabel('Time (ps)')
+plt.ylabel('Velocity (Å/ps)')
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.show()
+
+
+wls = [1001, 2501,  3401]
+plt.figure(figsize=(7, 4))
+plt.plot(t_seg, v_18_w,  alpha=0.4, label='Original signal')
+for wl in wls:
+    v_s_seg, _, _ = sg_smooth_v(t_seg, v_18_w, window_length=wl, polyorder=1)
+    plt.plot(t_seg, v_s_seg, lw=2.0, ls = '--', label='SG filtering (wl={})'.format(wl))
+plt.title('Given v and Reconstructed v')
+plt.xlabel('Time (ps)')
+plt.ylabel('Velocity (Å/ps)')
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.show()
+
+
+plt.figure(figsize=(7, 4))
+plt.plot(t_seg, R_18_w, label='Given R')
+plt.plot(t_seg, reconstruct_R_from_v(2*v_s_seg, t_seg, R0=R_18_w[0]), label='Reconstructed R')
+plt.title('Given R and Reconstructed R in relevant time window for 9Å case')
+plt.xlabel('Time (ps)')
+plt.ylabel('Distance Å')
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.show()

@@ -4,7 +4,7 @@ import os
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
 # Path Configuration
-office = True
+office = False
 if office:
     base_path = r"T:\NextCloud_PaulGuggenbichler\Dokumente\Studium\Masterarbeit\Drag_Calculation\Data_DFT\9A"
 else:
@@ -118,6 +118,14 @@ plt.show()
 # -------------------------------------------------------------------------------------
 # 9 A case new: Load, Plotting & Exporting
 # -------------------------------------------------------------------------------------
+
+def reconstruct_R_from_v(v_w, t_w, R0):
+    """
+    Reconstruct R from smoothed velocity data using Savitzky-Golay filter.
+    """
+    return (R0 + cumulative_trapezoid(v_w, t_w, initial=0))
+
+
 # --- Configuration ---
 output_file = os.path.join(base_path, "9A_All_Data.csv")
 step = 100  # Take every 100th point
@@ -146,6 +154,10 @@ v1_z = v1_raw[:min_len_r, 3]
 v2_z = v2_raw[:min_len_r, 3]
 v1_x = v1_raw[:min_len_r, 1]
 v2_x = v2_raw[:min_len_r, 1]
+
+
+R_reconstructed = reconstruct_R_from_v(v1_mag+v2_mag, t_master[:min_len_r], 9)
+R_reconstructed = R_reconstructed[::step]
 
 # --- 3. Decimate (Sub-sampling) ---
 t_final  = t_master[::step]
@@ -185,6 +197,7 @@ ax1.legend()
 ax1.grid(True, alpha=0.3)
 
 ax2.plot(t_final, R_final, color='black', label='Ground Truth Distance')
+ax2.plot(t_final, R_reconstructed, color='red', label='Reconstructed Distance')
 ax2.set_ylabel('R / Å')
 ax2.set_xlabel('t / ps')
 ax2.legend()
@@ -196,6 +209,7 @@ plt.show()
 # -------------------------------------------------------------------------------------
 # 18 A case: Load, Plotting & Exporting
 # -------------------------------------------------------------------------------------
+
 
 # --- Configuration ---
 if office:
@@ -230,7 +244,8 @@ v2_mag = np.linalg.norm(v2_raw[:min_len_r, 1:4], axis=1)
 v2_z = v2_raw[:min_len_r, 3]
 v2_x = v2_raw[:min_len_r, 1]
 
-
+R_reconstructed = reconstruct_R_from_v(v1_mag+v2_mag, t_master[:min_len_r], 18)
+R_reconstructed = R_reconstructed[::step]
 
 # --- 3. Decimate (Sub-sampling) ---
 t_final  = t_master[::step]
@@ -270,6 +285,7 @@ ax1.legend()
 ax1.grid(True, alpha=0.3)
 
 ax2.plot(t_final, R_final, color='black', label='Ground Truth Distance')
+ax2.plot(t_final, R_reconstructed, color='red', label='Reconstructed Distance')
 ax2.set_ylabel('R / Å')
 ax2.set_xlabel('t / ps')
 ax2.legend()
