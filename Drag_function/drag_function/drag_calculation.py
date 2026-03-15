@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from scipy.interpolate import UnivariateSpline
 from scipy.signal import savgol_filter
 from scipy.integrate import cumulative_trapezoid
+from scipy.optimize import curve_fit
 import pandas as pd
 #//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #                                                         Load Config and Data
@@ -20,6 +21,7 @@ def reconstruct_R_from_v(v_w, t_w, R0):
     Reconstruct R from smoothed velocity data using Savitzky-Golay filter.
     """
     return (R0 + cumulative_trapezoid(v_w, t_w, initial=0))
+t_exit_9 = 8.5
 
 test = False
 if test:
@@ -31,18 +33,18 @@ if test:
     mask = (t >= 4.54) & (t <= 8)
     t_w = t[mask]
     v_w = v[mask]
-    wl = 2401
+    wl = 3401
     polyorder = 1
     v_s = savgol_filter(v_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
 
-    plt.figure(figsize=(10, 4))
-    plt.plot(t_w, v_w, color='gray', alpha=0.4, label='Original')
-    plt.plot(t_w, v_s, color='#0072BD', lw=1.5, label='Smoothed')
-    plt.xlabel('t / ps')
-    plt.ylabel('v / Å/ps')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.show()
+    # plt.figure(figsize=(10, 4))
+    # plt.plot(t_w, v_w, color='gray', alpha=0.4, label='Original')
+    # plt.plot(t_w, v_s, color='#0072BD', lw=1.5, label='Smoothed')
+    # plt.xlabel('t / ps')
+    # plt.ylabel('v / Å/ps')
+    # plt.legend()
+    # plt.grid(True, alpha=0.3)
+    # plt.show()
 
     data = pd.read_csv('cleaned_data.csv')
     t_9 = data['time'].values
@@ -52,24 +54,24 @@ if test:
     v_9 = dict9["v2"]
     v_9_1 = dict9["v1"]
     R_9 = dict9["R"]
-    mask_9 = (t_9_full >= 2.67) & (t_9_full <= 8.5)
+    mask_9 = (t_9_full >= 2.67) & (t_9_full <= t_exit_9)
     t_9_w = t_9_full[mask_9]
     v_9_w = v_9[mask_9]
     R_9_w = R_9[mask_9]
     v_9_1_w = v_9_1[mask_9]
 
     wl = 4901
-    polyorder = 2
-    v9_test = savgol_filter(v_9_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
+    polyorder = 1
+    v9_test = savgol_filter(v_9_IMF, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
 
 
 
     plt.figure(figsize=(7, 4))
-    plt.plot(t_9_w, v_9_1_w,  alpha=0.4, label='Given v Iodine 1')
-    plt.plot(t_9_w, v_9_w, alpha=0.4, label='Given v Iodine 2')
-    plt.plot(t_9, v_9_SG, lw=1.5, label='Smoothed (IMF + SG)')
+    plt.plot(t_9_w, v_9_1_w,  alpha=0.2, label='Given v Iodine 1')
+    plt.plot(t_9_w, v_9_w, alpha=0.2, label='Given v Iodine 2')
+    plt.plot(t_9, v_9_SG, lw=1.5, label='Smoothed (IMF + SG wl: 3901)')
     plt.plot(t_9, v_9_IMF,  lw=1.5, label='Smoothed (IMF)')
-    plt.plot(t_9, v9_test, lw=1.5, label='Smoothed (Only SG)')
+    plt.plot(t_9, v9_test, lw=1.5, label=f'Smoothed (IMF + SG wl: {wl})')
     plt.xlabel('t / ps')
     plt.ylabel('v / Å/ps')
     plt.title('Velocity curves of both atoms with smoothed versions for the 9Å case')
@@ -78,15 +80,15 @@ if test:
     plt.show()
 
 
-    plt.figure(figsize=(7, 4))
-    plt.plot(t_9_w, R_9_w, label='Given R')
-    plt.plot(t_9_w, reconstruct_R_from_v(2 * v_9_IMF, t_9_w, R0=R_9_w[0]), label='Reconstructed R')
-    plt.title('Given R and Reconstructed R in relevant time window for 9Å case')
-    plt.xlabel('Time (ps)')
-    plt.ylabel('Distance Å')
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    plt.show()
+    # plt.figure(figsize=(7, 4))
+    # plt.plot(t_9_w, R_9_w, label='Given R')
+    # plt.plot(t_9_w, reconstruct_R_from_v(2 * v_9_IMF, t_9_w, R0=R_9_w[0]), label='Reconstructed R')
+    # plt.title('Given R and Reconstructed R in relevant time window for 9Å case')
+    # plt.xlabel('Time (ps)')
+    # plt.ylabel('Distance Å')
+    # plt.grid(True, alpha=0.3)
+    # plt.legend()
+    # plt.show()
 
     pass
 #/////////////////////////////////////////////////////////////////////////////////////////////
@@ -169,6 +171,7 @@ class DragExtractionSettings:
     show_plots: bool = True
     fit_power_law: bool = True               # fit |F_drag| = gamma * v^n
     case: int = None,                        # Optional for title in plots (e.g. 9 or 18 Å case)
+    plot_only_drag_with_fit: bool = False,
 
 
 
@@ -317,56 +320,107 @@ def main_calculation(
         # Residual plot: v_data - v_spline
         resid = v_A_per_ps - v_spline_Aps  # [Å/ps]
 
-        fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-        if settings.case is not None:
-            fig.suptitle(f"Velocity and residual for {settings.case} Å case", fontweight='bold')
-        ax[0].plot(t_ps, v_A_per_ps, "k", lw=0.8, label="v data [Å/ps]")
-        ax[0].plot(t_ps, v_spline_Aps, "r--", lw=1.5, label="v spline [Å/ps]")
-        ax[0].fill_between(t_ps, np.min(v_A_per_ps), np.max(v_A_per_ps), where=mask, alpha=0.08, label="trusted interior")
-        ax[0].set_ylabel("v [Å/ps]")
-        ax[0].grid(True)
-        ax[0].legend(fontsize="small")
+        if not settings.plot_only_drag_with_fit:
+            fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+            if settings.case is not None:
+                fig.suptitle(f"Velocity and residual for {settings.case} Å case", fontweight='bold')
+            ax[0].plot(t_ps, v_A_per_ps, "k", lw=0.8, label="v data [Å/ps]")
+            ax[0].plot(t_ps, v_spline_Aps, "r--", lw=1.5, label="v spline [Å/ps]")
+            ax[0].fill_between(t_ps, np.min(v_A_per_ps), np.max(v_A_per_ps), where=mask, alpha=0.08, label="trusted interior")
+            ax[0].set_ylabel("v [Å/ps]")
+            ax[0].grid(True)
+            ax[0].legend(fontsize="small")
 
-        ax[1].plot(t_ps, resid, lw=1.0, label="residual v_data - v_spline [Å/ps]")
-        ax[1].axhline(0.0, color="k", lw=0.8, alpha=0.7)
-        ax[1].fill_between(t_ps, np.min(resid), np.max(resid), where=mask, alpha=0.08)
-        ax[1].set_xlabel("t [ps]")
-        ax[1].set_ylabel("residual [Å/ps]")
-        ax[1].grid(True)
-        ax[1].legend(fontsize="small")
+            ax[1].plot(t_ps, resid, lw=1.0, label="residual v_data - v_spline [Å/ps]")
+            ax[1].axhline(0.0, color="k", lw=0.8, alpha=0.7)
+            ax[1].fill_between(t_ps, np.min(resid), np.max(resid), where=mask, alpha=0.08)
+            ax[1].set_xlabel("t [ps]")
+            ax[1].set_ylabel("residual [Å/ps]")
+            ax[1].grid(True)
+            ax[1].legend(fontsize="small")
 
-        plt.tight_layout()
-        plt.show()
+            plt.tight_layout()
+            plt.show()
 
-        # Acceleration and forces
-        fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
-        if settings.case is not None:
-            fig.suptitle(f"Acceleration and forces for {settings.case} Å case", fontweight='bold')
-        ax[0].plot(t_ps, a_spline_Aps2, lw=1.2, label="vdot from spline [Å/ps²]")
-        ax[0].fill_between(t_ps, np.min(a_spline_Aps2), np.max(a_spline_Aps2), where=mask, alpha=0.08)
-        ax[0].set_ylabel("vdot [Å/ps²]")
-        ax[0].grid(True)
-        ax[0].legend(fontsize="small")
+            # Acceleration and forces
+            fig, ax = plt.subplots(2, 1, figsize=(10, 6), sharex=True)
+            if settings.case is not None:
+                fig.suptitle(f"Acceleration and forces for {settings.case} Å case", fontweight='bold')
+            ax[0].plot(t_ps, a_spline_Aps2, lw=1.2, label="vdot from spline [Å/ps²]")
+            ax[0].fill_between(t_ps, np.min(a_spline_Aps2), np.max(a_spline_Aps2), where=mask, alpha=0.08)
+            ax[0].set_ylabel("vdot [Å/ps²]")
+            ax[0].grid(True)
+            ax[0].legend(fontsize="small")
 
-        ax[1].plot(t_ps, F_C_amuAps2, lw=1.2, label="F_C [amu*Å/ps²]")
-        ax[1].plot(t_ps, F_inert_amuAps2, lw=1.2, label="meff*vdot [amu*Å/ps²]")
-        ax[1].plot(t_ps, F_drag_amuAps2, lw=1.2, label="F_drag [amu*Å/ps²]")
-        ax[1].fill_between(t_ps, np.min(F_drag_amuAps2), np.max(F_drag_amuAps2), where=mask, alpha=0.08)
-        ax[1].set_xlabel("t [ps]")
-        ax[1].set_ylabel("Force [amu*Å/ps²]")
-        ax[1].grid(True)
-        ax[1].legend(fontsize="small")
-        plt.tight_layout()
-        plt.show()
+            ax[1].plot(t_ps, F_C_amuAps2, lw=1.2, label="F_C [amu*Å/ps²]")
+            ax[1].plot(t_ps, F_inert_amuAps2, lw=1.2, label="meff*vdot [amu*Å/ps²]")
+            ax[1].plot(t_ps, F_drag_amuAps2, lw=1.2, label="F_drag [amu*Å/ps²]")
+            ax[1].fill_between(t_ps, np.min(F_drag_amuAps2), np.max(F_drag_amuAps2), where=mask, alpha=0.08)
+            ax[1].set_xlabel("t [ps]")
+            ax[1].set_ylabel("Force [amu*Å/ps²]")
+            ax[1].grid(True)
+            ax[1].legend(fontsize="small")
+            plt.tight_layout()
+            plt.show()
 
-    # --- Drag law plot and fit on trusted interior ---
-    v_fit = v_spline_Aps[mask]            # [Å/ps]
-    F_fit = F_drag_amuAps2[mask]          # [amu*Å/ps^2]
+            if settings.case is not None:
+                # Acceleration forces and velocity
+                fig, ax = plt.subplots(3, 1, figsize=(9, 7), sharex=True)
+                fig.suptitle(f"Velocity, Acceleration and forces for {settings.case} Å case", fontweight='bold')
 
-    # Many models assume drag opposes motion; if v is speed magnitude, F_drag should be positive magnitude.
-    # If occasional negatives appear, they indicate either remaining oscillations, wrong meff, or non-Markovian effects.
-    # For a power-law fit we fit |F_drag| = gamma * v^n on positive v.
-    if settings.show_plots:
+                if settings.case == 9:
+                    dict = io.load_data(C.PATH9A)
+                elif settings.case == 18:
+                    dict = io.load_data(C.PATH18A)
+                else:
+                    raise ValueError(f"Unknown case {settings.case}")
+                v_orig = dict["v2"]
+                t_full = dict["t"]
+                mask_v = (t_full >= t_ps[0]) & (t_full <= t_ps[-1])
+                v_orig_w = v_orig[mask_v]
+
+                # data = pd.read_csv('cleaned_data.csv')
+                # v_9_IMF = data['IMF_cleaned'].values
+                # a_9_SG = savgol_filter(v_9_w, window_length=1201, polyorder=3, deriv=1, mode="interp")
+
+
+                ax[0].plot(t_ps, v_A_per_ps, lw=1.2, color = 'red' , label="v from IMF+SG smoothing [Å/ps]")
+                ax[0].plot(t_ps, v_orig_w, lw=1.2, alpha =0.3 , label="Original v [Å/ps]")
+                ax[0].fill_between(t_ps, np.min(v_A_per_ps), np.max(v_A_per_ps), where=mask, alpha=0.08)
+                ax[0].set_ylabel("v [Å/ps]")
+                ax[0].grid(True)
+                ax[0].legend(fontsize="small")
+
+                ax[1].plot(t_ps, a_spline_Aps2, lw=1.2, label="vdot from spline [Å/ps²]")
+                #ax[1].plot(t_ps, a_9_SG, lw=1.2, label="vdot from IMF+SG smoothing [Å/ps²]")
+                ax[1].fill_between(t_ps, np.min(a_spline_Aps2), np.max(a_spline_Aps2), where=mask, alpha=0.08)
+                ax[1].set_ylabel("vdot [Å/ps²]")
+                ax[1].grid(True)
+                ax[1].legend(fontsize="small")
+
+                ax[2].plot(t_ps, F_C_amuAps2, lw=1.2, label="F_C [amu*Å/ps²]")
+                ax[2].plot(t_ps, F_inert_amuAps2, lw=1.2, label="meff*vdot [amu*Å/ps²]")
+                ax[2].plot(t_ps, F_drag_amuAps2, lw=1.2, label="F_drag [amu*Å/ps²]")
+                ax[2].fill_between(t_ps, np.min(F_drag_amuAps2), np.max(F_drag_amuAps2), where=mask, alpha=0.08)
+                ax[2].set_xlabel("t [ps]")
+                ax[2].set_ylabel("Force [amu*Å/ps²]")
+                ax[2].grid(True)
+                ax[2].legend(fontsize="small")
+                plt.tight_layout()
+                plt.show()
+
+        # --- Drag law plot and fit on trusted interior ---
+        v_f = v_spline_Aps[mask]  # [Å/ps]
+        F_f = F_drag_amuAps2[mask]  # [amu*Å/ps^2]
+        # Keep only finite values (and optionally v>0 if v is a speed magnitude)
+        mask_2 = np.isfinite(v_f) & np.isfinite(F_f) & (v_f > 0.0)
+        v_fit = v_f[mask_2]
+        F_fit = F_f[mask_2]
+
+        # Many models assume drag opposes motion; if v is speed magnitude, F_drag should be positive magnitude.
+        # If occasional negatives appear, they indicate either remaining oscillations, wrong meff, or non-Markovian effects.
+        # For a power-law fit we fit |F_drag| = gamma * v^n on positive v.
+    if settings.show_plots and not settings.plot_only_drag_with_fit:
         plt.figure(figsize=(8, 5))
         plt.scatter(v_fit, F_fit, s=10, alpha=0.6, label="F_drag(t) samples")
         plt.xlabel("v [Å/ps]")
@@ -380,52 +434,118 @@ def main_calculation(
         plt.tight_layout()
         plt.show()
 
-    fit_result = {}
     if settings.fit_power_law:
-        # Fit on positive finite values
-        m = np.isfinite(v_fit) & np.isfinite(F_fit) & (v_fit > 0)
-        v_pos = v_fit[m]
-        F_pos = np.abs(F_fit[m])
+        fit_result = {}
+        # ---------------------------------------------------------------------------------------
+        #---------------------------------------------------------------------------------------
+        #           New Version
+        #---------------------------------------------------------------------------------------
+        # ---------------------------------------------------------------------------------------
 
-        # Avoid log(0)
-        m2 = F_pos > 0
-        v_pos = v_pos[m2]
-        F_pos = F_pos[m2]
+        # Sensible initial guesses:
+        # - a from small-v slope (robust: fit first ~10% of v-range)
+        # - b initially 0 or small
+        idx = np.argsort(v_fit)
+        v_sorted = v_fit[idx]
+        F_sorted = F_fit[idx]
+        n_small = max(10, int(0.1 * len(v_sorted)))
+        v_small = v_sorted[:n_small]
+        F_small = F_sorted[:n_small]
 
-        if len(v_pos) >= 20:
-            # log-linear fit: log F = log gamma + n log v
-            X = np.log(v_pos)
-            Y = np.log(F_pos)
-            A = np.vstack([np.ones_like(X), X]).T
-            c0, n = np.linalg.lstsq(A, Y, rcond=None)[0]
-            gamma = float(np.exp(c0))
-            n = float(n)
+        # Linear slope estimate for a (units: [amu*Å/ps^2] / [Å/ps] = [amu/ps])
+        a0 = float(np.linalg.lstsq(v_small.reshape(-1, 1), F_small, rcond=None)[0][0]) if np.any(v_small) else 0.0
 
-            fit_result = {"gamma": gamma, "n": n}
+        # Crude b guess from large-v region if available (units: [amu*Å/ps^2] / [Å/ps]^3 = [amu*ps/Å^2])
+        # Use median of (F - a0*v)/v^3 over top 10% velocities; fallback to 0.0
+        n_large = max(10, int(0.1 * len(v_sorted)))
+        v_large = v_sorted[-n_large:]
+        F_large = F_sorted[-n_large:]
+        b_candidates = (F_large - a0 * v_large) / np.maximum(v_large ** 3, 1e-30)
+        b0 = float(np.median(b_candidates[np.isfinite(b_candidates)])) if np.any(np.isfinite(b_candidates)) else 0.0
 
-            if settings.show_plots:
-                v_grid = np.linspace(np.min(v_pos), np.max(v_pos), 200)
-                F_grid = gamma * (v_grid ** n)
-                plt.figure(figsize=(8, 5))
-                plt.scatter(v_pos, F_pos, s=10, alpha=0.5, label="|F_drag| data")
-                plt.plot(v_grid, F_grid, lw=2.0, label=f"fit: |F| = γ v^n, γ={gamma:.3e}, n={n:.2f}")
-                plt.xlabel("v [Å/ps]")
-                plt.ylabel("|F_drag| [amu*Å/ps²]")
-                if settings.case is not None:
-                    plt.title(f"Power-law fit of drag magnitude for {settings.case} Å case", fontweight='bold')
-                else:
-                    plt.title("Power-law fit of drag magnitude", fontweight='bold')
-                plt.grid(True)
-                plt.legend()
-                plt.tight_layout()
-                plt.show()
 
-            print("=== Drag law fit (trusted interior) ===")
-            print(f"|F_drag| ≈ gamma * v^n")
-            print(f"gamma = {gamma:.3e} [amu*Å/ps² / (Å/ps)^n]")
-            print(f"n     = {n:.3f}\n")
-        else:
-            print("Not enough valid samples for power-law fit.")
+        p0 = (a0, b0)
+
+        # Fit with curve_fit (nonlinear least squares)
+        popt, pcov = curve_fit(drag_model, v_fit, F_fit, p0=p0, maxfev=20000)
+        a_hat, b_hat = popt
+        perr = np.sqrt(np.diag(pcov))  # 1σ parameter uncertainties
+        a_err, b_err = perr
+
+        # R^2 calculation
+        F_pred = drag_model(v_fit, a_hat, b_hat)
+        ss_res = float(np.sum((F_fit - F_pred) ** 2))
+        ss_tot = float(np.sum((F_fit - np.mean(F_fit)) ** 2))
+        r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+        fit_result = {"a": a_hat, "b": b_hat, "a_err": a_err, "b_err": b_err}
+        print("=== av + b v^3 drag fit ===")
+        print(f"a = {a_hat:.6e} ± {a_err:.6e}  [amu/ps]  (since F/[v] = (amu*Å/ps^2)/(Å/ps))")
+        print(f"b = {b_hat:.6e} ± {b_err:.6e}  [amu*ps/Å^2]  (since F/[v^3] = (amu*Å/ps^2)/(Å^3/ps^3))")
+        print(f"R^2 = {r2:.6f}")
+
+        # Plot overlay: raw samples + fitted curve
+        v_grid = np.linspace(np.min(v_fit), np.max(v_fit), 400)
+        F_grid = drag_model(v_grid, a_hat, b_hat)
+
+        plt.figure(figsize=(8, 5))
+        plt.scatter(v_fit, F_fit, s=10, alpha=0.6, label="F_drag samples")
+        plt.plot(v_grid, F_grid, lw=2.0, label= r"fit: $F_{\rm drag}(v)" + f"=a v + b v^3$, a={a_hat:.2f}, b={b_hat:.2f}")
+        plt.xlabel("v [Å/ps]")
+        plt.ylabel("F_drag [amu·Å/ps²]")
+        plt.title("Drag law fit: av + b v³")
+        plt.grid(True)
+        plt.legend()
+        plt.tight_layout()
+        plt.show()
+
+        # ---------------------------------------------------------------------------------------
+        # ---------------------------------------------------------------------------------------
+        # ---------------------------------------------------------------------------------------
+
+        # # Fit on positive finite values
+        # m = np.isfinite(v_fit) & np.isfinite(F_fit) & (v_fit > 0)
+        # v_pos = v_fit[m]
+        # F_pos = np.abs(F_fit[m])
+        #
+        # # Avoid log(0)
+        # m2 = F_pos > 0
+        # v_pos = v_pos[m2]
+        # F_pos = F_pos[m2]
+        #
+        # if len(v_pos) >= 20:
+        #     # log-linear fit: log F = log gamma + n log v
+        #     X = np.log(v_pos)
+        #     Y = np.log(F_pos)
+        #     A = np.vstack([np.ones_like(X), X]).T
+        #     c0, n = np.linalg.lstsq(A, Y, rcond=None)[0]
+        #     gamma = float(np.exp(c0))
+        #     n = float(n)
+        #
+        #     fit_result = {"gamma": gamma, "n": n}
+        #
+        #     if settings.show_plots:
+        #         v_grid = np.linspace(np.min(v_pos), np.max(v_pos), 200)
+        #         F_grid = gamma * (v_grid ** n)
+        #         plt.figure(figsize=(8, 5))
+        #         plt.scatter(v_pos, F_pos, s=10, alpha=0.5, label="|F_drag| data")
+        #         plt.plot(v_grid, F_grid, lw=2.0, label=f"fit: |F| = γ v^n, γ={gamma:.3e}, n={n:.2f}")
+        #         plt.xlabel("v [Å/ps]")
+        #         plt.ylabel("|F_drag| [amu*Å/ps²]")
+        #         if settings.case is not None:
+        #             plt.title(f"Power-law fit of drag magnitude for {settings.case} Å case", fontweight='bold')
+        #         else:
+        #             plt.title("Power-law fit of drag magnitude", fontweight='bold')
+        #         plt.grid(True)
+        #         plt.legend()
+        #         plt.tight_layout()
+        #         plt.show()
+        #
+        #     print("=== Drag law fit (trusted interior) ===")
+        #     print(f"|F_drag| ≈ gamma * v^n")
+        #     print(f"gamma = {gamma:.3e} [amu*Å/ps² / (Å/ps)^n]")
+        #     print(f"n     = {n:.3f}\n")
+        # else:
+        #     print("Not enough valid samples for power-law fit.")
 
     return {
         "t_ps": t_ps,                        # [ps]
@@ -445,6 +565,9 @@ def main_calculation(
 # =============================================================================
 # Example usage (adapt to your dict9/dict18 arrays)
 # =============================================================================
+def drag_model(v, a, b):
+    """F_drag(v) = a*v + b*v^3"""
+    return a * v + b * (v ** 3)
 
 dict9 = io.load_data(C.PATH9A)
 dict18 = io.load_data(C.PATH18A)
@@ -455,14 +578,16 @@ v_9_SG = data['cleaned_SG'].values
 v_9_IMF = data['IMF_cleaned'].values
 t_9_full = dict9["t"]
 v_9 = dict9["v2"]
-mask_9 = (t_9_full >= 2.67) & (t_9_full <= 8.5)
+mask_9 = (t_9_full >= 2.67) & (t_9_full <= t_exit_9)
 t_9_w = t_9_full[mask_9]
 v_9_w = v_9[mask_9]
 R_9 = dict9["R"]
 R_9_w = R_9[mask_9]
-v_9_SG_orig = savgol_filter(v_9_w, window_length=4901, polyorder=1, deriv=0, mode="interp")
+v_9_SG_orig = savgol_filter(v_9_w, window_length=3901, polyorder=1, deriv=0, mode="interp")
+v_9_SG_varying_wl = savgol_filter(v_9_IMF, window_length=2501, polyorder=1, deriv=0, mode="interp")
 R_recon = reconstruct_R_from_v(2 * v_9_IMF, t_9_w, R0=R_9_w[0])
-out = main_calculation(t_9_w, R_9_w, v_9_SG, DragExtractionSettings(case = 9, truncate_points=500))
+out = main_calculation(t_9_w, R_9_w, v_9_SG, DragExtractionSettings(case = 9,
+                              truncate_points=500, plot_only_drag_with_fit = False))
 
 
 t18 = dict18["t"]
@@ -475,6 +600,25 @@ R_18_w = R18[mask]
 wl = 3401
 polyorder = 1
 v_18_SG = savgol_filter(v_18_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
-out_18 = main_calculation(t_18_w, R_18_w, v_18_SG, DragExtractionSettings(case = 18, truncate_points=500))
+out_18 = main_calculation(t_18_w, R_18_w, v_18_SG, DragExtractionSettings(case = 18, truncate_points=500,
+                                                  plot_only_drag_with_fit = False))
 
 a = 3
+
+def compare_drag_two_cases(v_9, F_drag_9, a_9, b_9, v_18, F_drag_18, a_18, b_18):
+    plt.figure(figsize=(8, 5))
+    plt.plot(v_9, F_drag_9, label="F_drag 9Å case")
+    plt.plot(v_18, F_drag_18, label="F_drag 18Å case")
+    v_fit = np.linspace(np.min(v_18), np.max(v_9), 10000)
+    plt.plot(v_fit, drag_model(v_fit, a_9, b_9), ls = "--", alpha = 0.4, label="Fit_9")
+    plt.plot(v_fit, drag_model(v_fit, a_18, b_18), ls = "--", alpha = 0.4, label="Fit_18")
+    plt.xlabel("v [Å/ps]")
+    plt.ylabel("F_drag [amu*Å/ps²]")
+    plt.title("Comparison of F_drag between 9Å and 18Å cases")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+compare_drag_two_cases(out["v_spline_Aps"], out["F_drag_amuAps2"], out["fit_result"]["a"], out["fit_result"]["b"],
+                       out_18["v_spline_Aps"], out_18["F_drag_amuAps2"], out_18["fit_result"]["a"], out_18["fit_result"]["b"])

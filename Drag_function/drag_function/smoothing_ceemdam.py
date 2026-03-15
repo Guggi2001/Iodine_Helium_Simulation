@@ -236,7 +236,7 @@ if __name__ == "__main__":
     t_ps = t[mask]
     y = v[mask]
 
-    cfg = CeemdanConfig(trials=200, noise_width=0.2, random_seed=0, max_imfs=None)
+    cfg = CeemdanConfig(trials=80, noise_width=0.2, random_seed=0, max_imfs=None)
     imfs = ceemdan_decompose(t_ps, y, cfg)
 
     drop_idx, periods = identify_imfs_by_period(
