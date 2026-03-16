@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Tuple, Optional
+from typing import Dict, Optional
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -170,6 +170,7 @@ class DragExtractionSettings:
     # Diagnostics
     show_plots: bool = True
     fit_power_law: bool = True               # fit |F_drag| = gamma * v^n
+    fit_variant: int = 1                    # 1: fit |F_drag| = gamma * v^n, 2: fit F_drag = a v + b v^3
     case: int = None,                        # Optional for title in plots (e.g. 9 or 18 Å case)
     plot_only_drag_with_fit: bool = False,
 
@@ -434,118 +435,128 @@ def main_calculation(
         plt.tight_layout()
         plt.show()
 
+    fit_result = {}
     if settings.fit_power_law:
-        fit_result = {}
         # ---------------------------------------------------------------------------------------
         #---------------------------------------------------------------------------------------
-        #           New Version
+        #           gamma*v^n fit (fit_variant=1) is more robust and interpretable for drag
+        #           laws, but if you want to try a linear+v^3 fit, set fit_variant=2
         #---------------------------------------------------------------------------------------
         # ---------------------------------------------------------------------------------------
+        if settings.fit_variant == 1:
+            # Fit on positive finite values
+            m = np.isfinite(v_fit) & np.isfinite(F_fit) & (v_fit > 0)
+            v_pos = v_fit[m]
+            F_pos = np.abs(F_fit[m])
 
-        # Sensible initial guesses:
-        # - a from small-v slope (robust: fit first ~10% of v-range)
-        # - b initially 0 or small
-        idx = np.argsort(v_fit)
-        v_sorted = v_fit[idx]
-        F_sorted = F_fit[idx]
-        n_small = max(10, int(0.1 * len(v_sorted)))
-        v_small = v_sorted[:n_small]
-        F_small = F_sorted[:n_small]
+            # Avoid log(0)
+            m2 = F_pos > 0
+            v_pos = v_pos[m2]
+            F_pos = F_pos[m2]
 
-        # Linear slope estimate for a (units: [amu*Å/ps^2] / [Å/ps] = [amu/ps])
-        a0 = float(np.linalg.lstsq(v_small.reshape(-1, 1), F_small, rcond=None)[0][0]) if np.any(v_small) else 0.0
+            if len(v_pos) >= 20:
+                # log-linear fit: log F = log gamma + n log v
+                X = np.log(v_pos)
+                Y = np.log(F_pos)
+                A = np.vstack([np.ones_like(X), X]).T
+                c0, n = np.linalg.lstsq(A, Y, rcond=None)[0]
+                gamma = float(np.exp(c0))
+                n = float(n)
 
-        # Crude b guess from large-v region if available (units: [amu*Å/ps^2] / [Å/ps]^3 = [amu*ps/Å^2])
-        # Use median of (F - a0*v)/v^3 over top 10% velocities; fallback to 0.0
-        n_large = max(10, int(0.1 * len(v_sorted)))
-        v_large = v_sorted[-n_large:]
-        F_large = F_sorted[-n_large:]
-        b_candidates = (F_large - a0 * v_large) / np.maximum(v_large ** 3, 1e-30)
-        b0 = float(np.median(b_candidates[np.isfinite(b_candidates)])) if np.any(np.isfinite(b_candidates)) else 0.0
+                fit_result = {"gamma": gamma, "n": n}
 
+                if settings.show_plots:
+                    v_grid = np.linspace(np.min(v_pos), np.max(v_pos), 200)
+                    F_grid = gamma * (v_grid ** n)
+                    plt.figure(figsize=(8, 5))
+                    plt.scatter(v_pos, F_pos, s=10, alpha=0.5, label="|F_drag| data")
+                    plt.plot(v_grid, F_grid, lw=2.0, label=f"fit: |F| = γ v^n, γ={gamma:.3e}, n={n:.2f}")
+                    plt.xlabel("v [Å/ps]")
+                    plt.ylabel("|F_drag| [amu*Å/ps²]")
+                    if settings.case is not None:
+                        plt.title(f"Power-law fit of drag magnitude for {settings.case} Å case", fontweight='bold')
+                    else:
+                        plt.title("Power-law fit of drag magnitude", fontweight='bold')
+                    plt.grid(True)
+                    plt.legend()
+                    plt.tight_layout()
+                    plt.show()
 
-        p0 = (a0, b0)
-
-        # Fit with curve_fit (nonlinear least squares)
-        popt, pcov = curve_fit(drag_model, v_fit, F_fit, p0=p0, maxfev=20000)
-        a_hat, b_hat = popt
-        perr = np.sqrt(np.diag(pcov))  # 1σ parameter uncertainties
-        a_err, b_err = perr
-
-        # R^2 calculation
-        F_pred = drag_model(v_fit, a_hat, b_hat)
-        ss_res = float(np.sum((F_fit - F_pred) ** 2))
-        ss_tot = float(np.sum((F_fit - np.mean(F_fit)) ** 2))
-        r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
-        fit_result = {"a": a_hat, "b": b_hat, "a_err": a_err, "b_err": b_err}
-        print("=== av + b v^3 drag fit ===")
-        print(f"a = {a_hat:.6e} ± {a_err:.6e}  [amu/ps]  (since F/[v] = (amu*Å/ps^2)/(Å/ps))")
-        print(f"b = {b_hat:.6e} ± {b_err:.6e}  [amu*ps/Å^2]  (since F/[v^3] = (amu*Å/ps^2)/(Å^3/ps^3))")
-        print(f"R^2 = {r2:.6f}")
-
-        # Plot overlay: raw samples + fitted curve
-        v_grid = np.linspace(np.min(v_fit), np.max(v_fit), 400)
-        F_grid = drag_model(v_grid, a_hat, b_hat)
-
-        plt.figure(figsize=(8, 5))
-        plt.scatter(v_fit, F_fit, s=10, alpha=0.6, label="F_drag samples")
-        plt.plot(v_grid, F_grid, lw=2.0, label= r"fit: $F_{\rm drag}(v)" + f"=a v + b v^3$, a={a_hat:.2f}, b={b_hat:.2f}")
-        plt.xlabel("v [Å/ps]")
-        plt.ylabel("F_drag [amu·Å/ps²]")
-        plt.title("Drag law fit: av + b v³")
-        plt.grid(True)
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
+                print("=== Drag law fit (trusted interior) ===")
+                print(f"|F_drag| ≈ gamma * v^n")
+                print(f"gamma = {gamma:.3e} [amu*Å/ps² / (Å/ps)^n]")
+                print(f"n     = {n:.3f}\n")
+            else:
+                print("Not enough valid samples for power-law fit.")
 
         # ---------------------------------------------------------------------------------------
         # ---------------------------------------------------------------------------------------
+        #                   A linear+v^3 fit, set fit_variant=2
         # ---------------------------------------------------------------------------------------
+        # ---------------------------------------------------------------------------------------
+        elif settings.fit_variant == 2:
 
-        # # Fit on positive finite values
-        # m = np.isfinite(v_fit) & np.isfinite(F_fit) & (v_fit > 0)
-        # v_pos = v_fit[m]
-        # F_pos = np.abs(F_fit[m])
-        #
-        # # Avoid log(0)
-        # m2 = F_pos > 0
-        # v_pos = v_pos[m2]
-        # F_pos = F_pos[m2]
-        #
-        # if len(v_pos) >= 20:
-        #     # log-linear fit: log F = log gamma + n log v
-        #     X = np.log(v_pos)
-        #     Y = np.log(F_pos)
-        #     A = np.vstack([np.ones_like(X), X]).T
-        #     c0, n = np.linalg.lstsq(A, Y, rcond=None)[0]
-        #     gamma = float(np.exp(c0))
-        #     n = float(n)
-        #
-        #     fit_result = {"gamma": gamma, "n": n}
-        #
-        #     if settings.show_plots:
-        #         v_grid = np.linspace(np.min(v_pos), np.max(v_pos), 200)
-        #         F_grid = gamma * (v_grid ** n)
-        #         plt.figure(figsize=(8, 5))
-        #         plt.scatter(v_pos, F_pos, s=10, alpha=0.5, label="|F_drag| data")
-        #         plt.plot(v_grid, F_grid, lw=2.0, label=f"fit: |F| = γ v^n, γ={gamma:.3e}, n={n:.2f}")
-        #         plt.xlabel("v [Å/ps]")
-        #         plt.ylabel("|F_drag| [amu*Å/ps²]")
-        #         if settings.case is not None:
-        #             plt.title(f"Power-law fit of drag magnitude for {settings.case} Å case", fontweight='bold')
-        #         else:
-        #             plt.title("Power-law fit of drag magnitude", fontweight='bold')
-        #         plt.grid(True)
-        #         plt.legend()
-        #         plt.tight_layout()
-        #         plt.show()
-        #
-        #     print("=== Drag law fit (trusted interior) ===")
-        #     print(f"|F_drag| ≈ gamma * v^n")
-        #     print(f"gamma = {gamma:.3e} [amu*Å/ps² / (Å/ps)^n]")
-        #     print(f"n     = {n:.3f}\n")
-        # else:
-        #     print("Not enough valid samples for power-law fit.")
+            def drag_model(v, a, b):
+                """F_drag(v) = a*v + b*v^3"""
+                return a * v + b * (v ** 3)
+
+            # Sensible initial guesses:
+            # - a from small-v slope (robust: fit first ~10% of v-range)
+            # - b initially 0 or small
+            idx = np.argsort(v_fit)
+            v_sorted = v_fit[idx]
+            F_sorted = F_fit[idx]
+            n_small = max(10, int(0.1 * len(v_sorted)))
+            v_small = v_sorted[:n_small]
+            F_small = F_sorted[:n_small]
+
+            # Linear slope estimate for a (units: [amu*Å/ps^2] / [Å/ps] = [amu/ps])
+            a0 = float(np.linalg.lstsq(v_small.reshape(-1, 1), F_small, rcond=None)[0][0]) if np.any(v_small) else 0.0
+
+            # Crude b guess from large-v region if available (units: [amu*Å/ps^2] / [Å/ps]^3 = [amu*ps/Å^2])
+            # Use median of (F - a0*v)/v^3 over top 10% velocities; fallback to 0.0
+            n_large = max(10, int(0.1 * len(v_sorted)))
+            v_large = v_sorted[-n_large:]
+            F_large = F_sorted[-n_large:]
+            b_candidates = (F_large - a0 * v_large) / np.maximum(v_large ** 3, 1e-30)
+            b0 = float(np.median(b_candidates[np.isfinite(b_candidates)])) if np.any(np.isfinite(b_candidates)) else 0.0
+
+
+            p0 = (a0, b0)
+
+            # Fit with curve_fit (nonlinear least squares)
+            popt, pcov = curve_fit(drag_model, v_fit, F_fit, p0=p0, maxfev=20000)
+            a_hat, b_hat = popt
+            perr = np.sqrt(np.diag(pcov))  # 1σ parameter uncertainties
+            a_err, b_err = perr
+
+            # R^2 calculation
+            F_pred = drag_model(v_fit, a_hat, b_hat)
+            ss_res = float(np.sum((F_fit - F_pred) ** 2))
+            ss_tot = float(np.sum((F_fit - np.mean(F_fit)) ** 2))
+            r2 = 1.0 - ss_res / ss_tot if ss_tot > 0 else np.nan
+            fit_result = {"a": a_hat, "b": b_hat, "a_err": a_err, "b_err": b_err}
+            print("=== av + b v^3 drag fit ===")
+            print(f"a = {a_hat:.6e} ± {a_err:.6e}  [amu/ps]  (since F/[v] = (amu*Å/ps^2)/(Å/ps))")
+            print(f"b = {b_hat:.6e} ± {b_err:.6e}  [amu*ps/Å^2]  (since F/[v^3] = (amu*Å/ps^2)/(Å^3/ps^3))")
+            print(f"R^2 = {r2:.6f}")
+
+            # Plot overlay: raw samples + fitted curve
+            v_grid = np.linspace(np.min(v_fit), np.max(v_fit), 400)
+            F_grid = drag_model(v_grid, a_hat, b_hat)
+
+            if settings.show_plots:
+                plt.figure(figsize=(8, 5))
+                plt.scatter(v_fit, F_fit, s=10, alpha=0.6, label="F_drag samples")
+                plt.plot(v_grid, F_grid, lw=2.0, label= r"fit: $F_{\rm drag}(v)" + f"=a v + b v^3$, a={a_hat:.2f}, b={b_hat:.2f}")
+                plt.xlabel("v [Å/ps]")
+                plt.ylabel("F_drag [amu·Å/ps²]")
+                plt.title("Drag law fit: av + b v³")
+                plt.grid(True)
+                plt.legend()
+                plt.tight_layout()
+                plt.show()
+
 
     return {
         "t_ps": t_ps,                        # [ps]
@@ -565,9 +576,14 @@ def main_calculation(
 # =============================================================================
 # Example usage (adapt to your dict9/dict18 arrays)
 # =============================================================================
-def drag_model(v, a, b):
+def drag_model(v,gamma,n):
+    """F_drag(v) = gamma * v^n"""
+    return gamma * (v ** n)
+
+def drag_model_tert(v, a, b):
     """F_drag(v) = a*v + b*v^3"""
     return a * v + b * (v ** 3)
+
 
 dict9 = io.load_data(C.PATH9A)
 dict18 = io.load_data(C.PATH18A)
@@ -586,8 +602,11 @@ R_9_w = R_9[mask_9]
 v_9_SG_orig = savgol_filter(v_9_w, window_length=3901, polyorder=1, deriv=0, mode="interp")
 v_9_SG_varying_wl = savgol_filter(v_9_IMF, window_length=2501, polyorder=1, deriv=0, mode="interp")
 R_recon = reconstruct_R_from_v(2 * v_9_IMF, t_9_w, R0=R_9_w[0])
+
 out = main_calculation(t_9_w, R_9_w, v_9_SG, DragExtractionSettings(case = 9,
-                              truncate_points=500, plot_only_drag_with_fit = False))
+                              truncate_points=500, plot_only_drag_with_fit = True))
+out_fit_2 = main_calculation(t_9_w, R_9_w, v_9_SG, DragExtractionSettings(case = 9,
+                              truncate_points=500, fit_variant = 2, plot_only_drag_with_fit = True))
 
 
 t18 = dict18["t"]
@@ -600,25 +619,57 @@ R_18_w = R18[mask]
 wl = 3401
 polyorder = 1
 v_18_SG = savgol_filter(v_18_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
+
 out_18 = main_calculation(t_18_w, R_18_w, v_18_SG, DragExtractionSettings(case = 18, truncate_points=500,
-                                                  plot_only_drag_with_fit = False))
+                                                  plot_only_drag_with_fit = True))
+out_18_fit_2 = main_calculation(t_18_w, R_18_w, v_18_SG, DragExtractionSettings(case = 18, truncate_points=500,
+                                 fit_variant = 2, plot_only_drag_with_fit = True))
 
 a = 3
 
-def compare_drag_two_cases(v_9, F_drag_9, a_9, b_9, v_18, F_drag_18, a_18, b_18):
+def compare_drag_two_cases(v_9, F_drag_9, gamma_9, n_9, v_18, F_drag_18, gamma_18, n_18, v_fit_lims = None):
     plt.figure(figsize=(8, 5))
     plt.plot(v_9, F_drag_9, label="F_drag 9Å case")
     plt.plot(v_18, F_drag_18, label="F_drag 18Å case")
-    v_fit = np.linspace(np.min(v_18), np.max(v_9), 10000)
-    plt.plot(v_fit, drag_model(v_fit, a_9, b_9), ls = "--", alpha = 0.4, label="Fit_9")
-    plt.plot(v_fit, drag_model(v_fit, a_18, b_18), ls = "--", alpha = 0.4, label="Fit_18")
+    if v_fit_lims is not None:
+        v_fit = np.linspace(v_fit_lims[0], v_fit_lims[1], 10000)
+    else:
+        v_fit = np.linspace(np.min(v_18), np.max(v_9), 10000)
+    plt.plot(v_fit, drag_model(v_fit, gamma_9, n_9), ls = "--", alpha = 0.4, label=f"Fit_9, gamma = {gamma_9:.2f}, n = {n_9:.2f}")
+    plt.plot(v_fit, drag_model(v_fit, gamma_18, n_18), ls = "--", alpha = 0.4, label=f"Fit_18, gamma = {gamma_18:.2f}, n = {n_18:.2f}")
     plt.xlabel("v [Å/ps]")
     plt.ylabel("F_drag [amu*Å/ps²]")
-    plt.title("Comparison of F_drag between 9Å and 18Å cases")
+    plt.title("Comparison of F_drag between 9Å and 18Å cases with $\\gamma$$v^n$ fit")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
     plt.show()
 
-compare_drag_two_cases(out["v_spline_Aps"], out["F_drag_amuAps2"], out["fit_result"]["a"], out["fit_result"]["b"],
-                       out_18["v_spline_Aps"], out_18["F_drag_amuAps2"], out_18["fit_result"]["a"], out_18["fit_result"]["b"])
+
+def compare_drag_two_cases_tert(v_9, F_drag_9, a_9, b_9, v_18, F_drag_18, a_18, b_18, v_fit_lims = None):
+    plt.figure(figsize=(8, 5))
+    plt.plot(v_9, F_drag_9, label="F_drag 9Å case")
+    plt.plot(v_18, F_drag_18, label="F_drag 18Å case")
+    if v_fit_lims is not None:
+        v_fit = np.linspace(v_fit_lims[0], v_fit_lims[1], 10000)
+    else:
+        v_fit = np.linspace(np.min(v_18), np.max(v_9), 10000)
+    plt.plot(v_fit, drag_model_tert(v_fit, a_9, b_9), ls = "--", alpha = 0.4, label=f"Fit_9, a = {a_9:.2f}, b = {b_9:.2f}")
+    plt.plot(v_fit, drag_model_tert(v_fit, a_18, b_18), ls = "--", alpha = 0.4, label=f"Fit_18, a = {a_18:.2f}, b = {b_18:.2f}")
+    plt.xlabel("v [Å/ps]")
+    plt.ylabel("F_drag [amu*Å/ps²]")
+    plt.title("Comparison of F_drag between 9Å and 18Å cases with av+bv^3")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+
+
+
+compare_drag_two_cases_tert(out_fit_2["v_spline_Aps"], out_fit_2["F_drag_amuAps2"], out_fit_2["fit_result"]["a"], out_fit_2["fit_result"]["b"],
+                       out_18_fit_2["v_spline_Aps"], out_18_fit_2["F_drag_amuAps2"], out_18_fit_2["fit_result"]["a"], out_18_fit_2["fit_result"]["b"])#, v_fit_lims = (0.5, 15))
+
+compare_drag_two_cases(out["v_spline_Aps"], out["F_drag_amuAps2"], out["fit_result"]["gamma"], out["fit_result"]["n"],
+                       out_18["v_spline_Aps"], out_18["F_drag_amuAps2"], out_18["fit_result"]["gamma"], out_18["fit_result"]["n"]) #, v_fit_lims = (0.5, 15))
