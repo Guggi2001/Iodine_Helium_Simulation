@@ -35,11 +35,11 @@ if test:
     v_w = v[mask]
     wl = 3401
     polyorder = 1
-    v_s = savgol_filter(v_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
+    v_s_18 = savgol_filter(v_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
 
     # plt.figure(figsize=(10, 4))
     # plt.plot(t_w, v_w, color='gray', alpha=0.4, label='Original')
-    # plt.plot(t_w, v_s, color='#0072BD', lw=1.5, label='Smoothed')
+    # plt.plot(t_w, v_s_18, color='#0072BD', lw=1.5, label='Smoothed')
     # plt.xlabel('t / ps')
     # plt.ylabel('v / Å/ps')
     # plt.legend()
@@ -89,6 +89,41 @@ if test:
     # plt.grid(True, alpha=0.3)
     # plt.legend()
     # plt.show()
+
+    t18 = dict18["t"]
+    R18 = dict18["R"]
+    v18 = dict18["v2"]
+    v18_1 = dict18['v1']
+    mask = (t18 >= 4.543) & (t18 <= 8)
+    t_18_w = t18[mask]
+    R_18_w = R18[mask]
+    v_18_w = v18[mask]
+    v_18_1_w = v18_1[mask]
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 6))
+
+    # 9Å case
+    ax1.plot(t_9_w, v_9_1_w, alpha=0.2, label='Given v Iodine 1')
+    ax1.plot(t_9_w, v_9_w, alpha=0.2, label='Given v Iodine 2')
+    ax1.plot(t_9, v_9_SG, lw=1.5, label='Smoothed velocity')
+    ax1.set_xlabel('t / ps')
+    ax1.set_ylabel('v / Å/ps')
+    ax1.set_title('9Å case: Velocity curves with smoothed version')
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+
+    # 18Å case
+    ax2.plot(t_18_w, v_18_1_w, alpha=0.4, label='Given v Iodine 1')
+    ax2.plot(t_18_w, v_18_w, alpha=0.4, label='Given v Iodine 2')
+    ax2.plot(t_18_w, v_s_18, label='Smoothed velocity')
+    ax2.set_xlabel('Time (ps)')
+    ax2.set_ylabel('Velocity (Å/ps)')
+    ax2.set_title('18Å case: Velocity curves with smoothed version')
+    ax2.legend()
+    ax2.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
 
     pass
 #/////////////////////////////////////////////////////////////////////////////////////////////
@@ -669,7 +704,7 @@ def compare_drag_two_cases_tert(v_9, F_drag_9, a_9, b_9, v_18, F_drag_18, a_18, 
 
 
 compare_drag_two_cases_tert(out_fit_2["v_spline_Aps"], out_fit_2["F_drag_amuAps2"], out_fit_2["fit_result"]["a"], out_fit_2["fit_result"]["b"],
-                       out_18_fit_2["v_spline_Aps"], out_18_fit_2["F_drag_amuAps2"], out_18_fit_2["fit_result"]["a"], out_18_fit_2["fit_result"]["b"])#, v_fit_lims = (0.5, 15))
+                       out_18_fit_2["v_spline_Aps"], out_18_fit_2["F_drag_amuAps2"], out_18_fit_2["fit_result"]["a"], out_18_fit_2["fit_result"]["b"], v_fit_lims = (0.5, 15))
 
 compare_drag_two_cases(out["v_spline_Aps"], out["F_drag_amuAps2"], out["fit_result"]["gamma"], out["fit_result"]["n"],
-                       out_18["v_spline_Aps"], out_18["F_drag_amuAps2"], out_18["fit_result"]["gamma"], out_18["fit_result"]["n"]) #, v_fit_lims = (0.5, 15))
+                       out_18["v_spline_Aps"], out_18["F_drag_amuAps2"], out_18["fit_result"]["gamma"], out_18["fit_result"]["n"], v_fit_lims = (0.5, 15))
