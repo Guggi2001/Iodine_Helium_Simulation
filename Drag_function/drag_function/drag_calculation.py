@@ -23,28 +23,31 @@ def reconstruct_R_from_v(v_w, t_w, R0):
     return (R0 + cumulative_trapezoid(v_w, t_w, initial=0))
 t_exit_9 = 8.5
 
-test = False
+test = True
 if test:
     dict9 = io.load_data(C.PATH9A)
     dict18 = io.load_data(C.PATH18A)
 
     t = dict18["t"]
     v = dict18["v2"]
-    mask = (t >= 4.54) & (t <= 8)
+    v1 = dict18["v1"]
+    mask = (t >= 4.543) & (t <= 8)
     t_w = t[mask]
     v_w = v[mask]
+    v1_w = v1[mask]
     wl = 3401
     polyorder = 1
     v_s_18 = savgol_filter(v_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
+    v1_s_18 = savgol_filter(v1_w, window_length=wl, polyorder=polyorder, deriv=0, mode="interp")
 
-    # plt.figure(figsize=(10, 4))
-    # plt.plot(t_w, v_w, color='gray', alpha=0.4, label='Original')
-    # plt.plot(t_w, v_s_18, color='#0072BD', lw=1.5, label='Smoothed')
-    # plt.xlabel('t / ps')
-    # plt.ylabel('v / Å/ps')
-    # plt.legend()
-    # plt.grid(True, alpha=0.3)
-    # plt.show()
+    plt.figure(figsize=(10, 4))
+    plt.plot(t_w, v_w, color='gray', alpha=0.4, label='Original')
+    plt.plot(t_w, v_s_18, color='#0072BD', lw=1.5, label='Smoothed')
+    plt.xlabel('t / ps')
+    plt.ylabel('v / Å/ps')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.show()
 
     data = pd.read_csv('cleaned_data.csv')
     t_9 = data['time'].values
@@ -115,7 +118,8 @@ if test:
     # 18Å case
     ax2.plot(t_18_w, v_18_1_w, alpha=0.4, label='Given v Iodine 1')
     ax2.plot(t_18_w, v_18_w, alpha=0.4, label='Given v Iodine 2')
-    ax2.plot(t_18_w, v_s_18, label='Smoothed velocity')
+    ax2.plot(t_18_w, v_s_18, label='Smoothed velocity Iodine 2')
+    ax2.plot(t_18_w, v1_s_18, ls = '--', label='Smoothed velocity Iodine 1')
     ax2.set_xlabel('Time (ps)')
     ax2.set_ylabel('Velocity (Å/ps)')
     ax2.set_title('18Å case: Velocity curves with smoothed version')

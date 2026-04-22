@@ -33,3 +33,5 @@ lmp.commands_string(lj_script)
 
 # lmp.finalize() explicitly calls MPI_Finalize() before shutting down LAMMPS
 lmp.finalize()
+
+# For parallel runs, you need to type "mpiexec -np 4 python benchmark.py" in the terminal
