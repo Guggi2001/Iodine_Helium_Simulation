@@ -11,7 +11,6 @@ joule_per_eV = 1.602E-19;
 joule_per_wavenumber = joule_per_eV*eV_per_wavenumber;
 
 
-
 % values from: J. Chem. Phys. 107, 9046 (1997); doi: 10.1063/1.475194 
 omega_e = 214.5; %cm^-1, 
     omega_e_x_e= 0.65; % cm^-1 
