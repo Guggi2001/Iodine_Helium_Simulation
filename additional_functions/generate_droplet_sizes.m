@@ -14,6 +14,9 @@ global T_source
 p0 = p_source;
 T0 = T_source;
 
+p0= 40
+T0 = 14
+
 %
 %mu = (0.00184*p0 - 0.331)*T0 + (-0.0133*pi + 13.3747);
 

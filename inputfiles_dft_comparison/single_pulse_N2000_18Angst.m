@@ -65,9 +65,9 @@ scatter_mass_ion = 4;
 
 global geometric_scattering_crosssection_Iplus;
 
-geometric_scattering_crosssection_Iplus = 1900; %Angström^2; % for sigme = v^-2
+%geometric_scattering_crosssection_Iplus = 1900; %Angström^2; % for sigme = v^-2
 
-geometric_scattering_crosssection_Iplus = 200; 
+geometric_scattering_crosssection_Iplus = 1600; 
 
 
 global binding_energy_I_ion

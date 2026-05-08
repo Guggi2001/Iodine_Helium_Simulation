@@ -32,7 +32,7 @@ mu = log(N_mean)- delta^2/2;
 %mu = log(N_median);
 
 %delta = sqrt(2*(log(N_mean) - mu));
-
+single_droplet_size
 %FWHM_N = exp(mu - delta^2 + delta*sqrt(2*log(2))) - exp(mu - delta^2 - delta*sqrt(2*log(2)));
 
 N = lognrnd(mu, delta, 1,num_molecules*10);
