@@ -179,8 +179,8 @@ end
 % load('T:\github synchronized\I2HeN_velocity_simulation\\neutral_propagation_checkpoint.mat');
 % load('T:\github synchronized\I2HeN_velocity_simulation\ion_propagation_checkpoint.mat');
 
-data_neutral = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\neutral_propagation_checkpoint.mat');
-data_ion = load('T:\github synchronized\I2HeN_velocity_simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
+data_neutral = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\neutral_propagation_checkpoint.mat');
+data_ion = load('T:\github synchronized\Iodine_Helium_Simulation\single_pulse_simulation\ion_propagation_checkpoint.mat');
 
 %for mass_select =127 + 4*[0:17]
 for mass_select = 127+ 4*1
