@@ -58,13 +58,13 @@ global E_diss; E_diss = 1.556*eV;
 % He DFT comparison inputfiles
 %run inputfiles_dft_comparison\single_pulse_N2000.m  
 
-%run inputfiles_dft_comparison\single_pulse_droplet_distribution.m 
+run inputfiles_dft_comparison\single_pulse_droplet_distribution.m 
 
 
 %run inputfiles_dft_comparison\single_pulse_gas_distribution.m
 
 %% single pulse inputs for v^-1 tests
-run inputfiles_dft_comparison\single_pulse_N2000_18Angst.m
+%run inputfiles_dft_comparison\single_pulse_N2000_18Angst.m
 %run inputfiles_dft_comparison\single_pulse_droplet_distribution_v_minus_one.m 
 
 %% pumpprobe  inputs

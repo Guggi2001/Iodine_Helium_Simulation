@@ -1,6 +1,6 @@
 % this script compares the radial histrogram over time to 
 % the radial distribution (initially and at 60 K mean energy)
-vmi_sim_post_process('pumpprobe')
+%vmi_sim_post_process('pumpprobe')
 
 %load('post_process_checkpoint.mat');
 load('single_pulse_simulation/post_process_checkpoint.mat');

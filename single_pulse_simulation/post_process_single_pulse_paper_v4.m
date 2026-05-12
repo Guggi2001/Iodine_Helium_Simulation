@@ -263,27 +263,37 @@ exportgraphics(f, 'compare_simulation_and_measurement_simpler.pdf', 'ContentType
 
 
 figure
-
 vr_total = sqrt(data_ion.vx_total.^2 + data_ion.vy_total.^2);
 theta_total = atan2(data_ion.vx_total, data_ion.vy_total);
 
-theta1 = theta_total(1:num_molecules) + pi;
-theta2 = theta_total(num_molecules+1:end) + pi;
+% Calculate the midpoint dynamically
+N_total = size(theta_total, 1);
+mid = floor(N_total / 2); 
 
+% Define theta for the two fragments
+theta1 = theta_total(1:mid) + pi;
+theta2 = theta_total(mid+1:2*mid) + pi; 
+
+% Create a mask where BOTH fragments of a pair were detected
+b_ion1 = b_select(1:mid);
+b_ion2 = b_select(mid+1:2*mid);
+valid_pairs = b_ion1 & b_ion2;
+
+% Apply the filter (theta1 and theta2 are now shorter)
+theta1 = theta1(valid_pairs);
+theta2 = theta2(valid_pairs);
+
+% Plotting setup
 numbins = 90;
 theta = linspace(0,2*pi, numbins);
 dtheta = theta(2)- theta(1);
 
-theta1 = theta1(b_select(1:num_molecules)  & b_select(num_molecules+1:end));
-theta2 = theta2(b_select(1:num_molecules)  & b_select(num_molecules+1:end));
+% --- DO NOT RE-INSERT THE THETA1/THETA2 INDEXING LINES HERE ---
 
 simulated_angular_covariance = zeros(length(theta), length(theta));
-
 for i=1:length(theta1)
-   
-        simulated_angular_covariance( floor(theta1(i)/dtheta)+1 , floor(theta2(i)/dtheta)+1) = simulated_angular_covariance( floor(theta1(i)/dtheta)+1 , floor(theta2(i)/dtheta)+1) + 1;
-
-
+   simulated_angular_covariance( floor(theta1(i)/dtheta)+1 , floor(theta2(i)/dtheta)+1) = ...
+       simulated_angular_covariance( floor(theta1(i)/dtheta)+1 , floor(theta2(i)/dtheta)+1) + 1;
 end
 
 surf(theta-pi, theta-pi, simulated_angular_covariance);
